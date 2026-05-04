@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import openai
 import tiktoken
@@ -11,6 +11,7 @@ from tenacity import (
 )
 
 from .base import BaseLLMAdapter
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,14 +23,18 @@ class OpenAIAdapter(BaseLLMAdapter):
     and calculating token counts using tiktoken.
     """
 
-    def __init__(self, api_key: str, model: str = "gpt-4o") -> None:
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o") -> None:
         """
         Initializes the OpenAI adapter.
 
         Args:
-            api_key (str): The API key for authenticating with OpenAI.
+            api_key (Optional[str]): The API key for authenticating with OpenAI. Defaults to settings.
             model (str): The model to use for generation (default: 'gpt-4o').
         """
+        api_key = api_key or settings.openai_api_key
+        if not api_key:
+            raise ValueError("OpenAI API key is missing. Please set OPENAI_API_KEY environment variable or pass it directly.")
+
         self.client = openai.Client(api_key=api_key)
         self.model = model
 
@@ -55,6 +60,9 @@ class OpenAIAdapter(BaseLLMAdapter):
         Returns:
             str: The generated textual response.
         """
+        if "temperature" not in kwargs:
+            kwargs["temperature"] = settings.default_temperature
+
         logger.debug(f"Sending request to OpenAI using model: {self.model}")
         response = self.client.chat.completions.create(
             model=self.model,

@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, Optional
 
 import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
@@ -11,6 +11,7 @@ from tenacity import (
 )
 
 from .base import BaseLLMAdapter
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +22,18 @@ class GeminiAdapter(BaseLLMAdapter):
     Handles interactions with the Google Generative AI API.
     """
 
-    def __init__(self, api_key: str, model: str = "gemini-1.5-pro") -> None:
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-1.5-pro") -> None:
         """
         Initializes the Gemini adapter.
 
         Args:
-            api_key (str): The API key for authenticating with Google Generative AI.
+            api_key (Optional[str]): The API key for authenticating with Google Generative AI. Defaults to settings.
             model (str): The model to use for generation (default: 'gemini-1.5-pro').
         """
+        api_key = api_key or settings.gemini_api_key
+        if not api_key:
+            raise ValueError("Gemini API key is missing. Please set GEMINI_API_KEY environment variable or pass it directly.")
+
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel(model_name=model)
 
@@ -55,6 +60,9 @@ class GeminiAdapter(BaseLLMAdapter):
         Returns:
             str: The generated textual response.
         """
+        if "generation_config" not in kwargs:
+            kwargs["generation_config"] = genai.types.GenerationConfig(temperature=settings.default_temperature)
+
         logger.debug(f"Sending request to Gemini using model: {self.model.model_name}")
         response = self.model.generate_content(prompt, **kwargs)
         return response.text
