@@ -14,4 +14,5 @@ beautifulsoup4>=4.12.3
 pytest>=8.1.1
 pytest-mock>=3.14.0
 ruff>=0.3.4
-mypy>=1.9.0tiktoken>=0.6.0
+mypy>=1.9.0
+tiktoken>=0.6.0
