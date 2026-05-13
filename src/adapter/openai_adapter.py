@@ -10,8 +10,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from src.adapter.base import BaseLLMAdapter
-from src.config import settings
+from .base import BaseLLMAdapter
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -91,3 +91,9 @@ class OpenAIAdapter(BaseLLMAdapter):
             encoding = tiktoken.get_encoding("cl100k_base")
 
         return len(encoding.encode(text))
+
+    def generate_with_tools(self, prompt: str) -> str:
+        """
+        Executes a prompt allowing the LLM to utilize registered tools.
+        """
+        raise NotImplementedError("Tool calling logic is not yet implemented for this adapter.")

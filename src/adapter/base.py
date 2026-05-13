@@ -8,10 +8,11 @@ class BaseLLMAdapter(ABC):
     Ensures a consistent interface across different models.
     """
 
-    def __init__(self):
-        self.tools: Dict[str, Callable] = {}
+    def __init__(self) -> None:
+        # Correctly type the nested dictionary structure
+        self.tools: Dict[str, Dict[str, Any]] = {}
 
-    def register_tool(self, name: str, func: Callable, description: str) -> None:
+    def register_tool(self, name: str, func: Callable[..., Any], description: str) -> None:
         """
         Registers a local Python function to be exposed to the LLM via MCP.
         """

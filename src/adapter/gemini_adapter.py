@@ -10,8 +10,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from src.adapter.base import BaseLLMAdapter
-from src.config import settings
+from .base import BaseLLMAdapter
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -79,3 +79,9 @@ class GeminiAdapter(BaseLLMAdapter):
         """
         response = self.model.count_tokens(text)
         return response.total_tokens
+
+    def generate_with_tools(self, prompt: str) -> str:
+        """
+        Executes a prompt allowing the LLM to utilize registered tools.
+        """
+        raise NotImplementedError("Tool calling logic is not yet implemented for this adapter.")

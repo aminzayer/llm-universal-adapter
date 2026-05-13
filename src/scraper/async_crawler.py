@@ -1,7 +1,7 @@
 import aiohttp
 from typing import Set
 from bs4 import BeautifulSoup
-from src.adapter.factory import LLMAdapterFactory
+from adapter.factory import LLMAdapterFactory
 
 
 class AgenticScraper:
@@ -19,8 +19,10 @@ class AgenticScraper:
         """
         Fetches the HTML content of a given URL.
         """
+        # Instantiate a strict ClientTimeout object
+        timeout = aiohttp.ClientTimeout(total=10)
         try:
-            async with session.get(url, timeout=10) as response:
+            async with session.get(url, timeout=timeout) as response:
                 return await response.text()
         except Exception as e:
             print(f"Error fetching {url}: {e}")

@@ -1,5 +1,5 @@
 from typing import Type, Dict, Any
-from src.adapter.base import BaseLLMAdapter
+from .base import BaseLLMAdapter
 
 
 class LLMAdapterFactory:
