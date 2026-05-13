@@ -12,10 +12,13 @@ class DummyAdapter(BaseLLMAdapter):
         self.api_key = api_key
 
     def generate_response(self, prompt: str, **kwargs: Any) -> str:
-        return "dummy_response"
+            return "dummy response"
 
     def get_token_count(self, text: str) -> int:
-        return 42
+        return len(text.split())
+
+    def generate_with_tools(self, prompt: str) -> str:
+        return "dummy tool response"
 
 
 def test_register_and_create_adapter() -> None:

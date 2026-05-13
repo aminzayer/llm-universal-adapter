@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import openai
-from google.api_core import exceptions as google_exceptions
+from google.genai.errors import APIError  # pyright: ignore[reportMissingImports]
 
 from src.adapter.openai_adapter import OpenAIAdapter
 from src.adapter.gemini_adapter import GeminiAdapter
@@ -18,14 +18,15 @@ def fast_retries():
         yield
 
 
-# -----------------------------------------------------------------------------
+# =============================================================================
 # OpenAIAdapter Tests
-# -----------------------------------------------------------------------------
+# =============================================================================
 
 
 def test_openai_adapter_missing_key() -> None:
     """Ensure OpenAIAdapter raises ValueError if API key is completely missing."""
-    with patch("src.config.settings.openai_api_key", None):
+    # Corrected patch path to remove 'src.'
+    with patch("config.settings.openai_api_key", None):
         with pytest.raises(ValueError, match="OpenAI API key is missing"):
             OpenAIAdapter(api_key=None)
 
@@ -85,6 +86,7 @@ def test_openai_adapter_generate_response_retry_failure(mock_client: MagicMock) 
 
 @patch("tiktoken.encoding_for_model")
 def test_openai_adapter_get_token_count(mock_encoding_for_model: MagicMock) -> None:
+    """Test token counting logic using tiktoken."""
     mock_encoding = MagicMock()
     mock_encoding.encode.return_value = [1, 2, 3, 4]
     mock_encoding_for_model.return_value = mock_encoding
@@ -94,44 +96,56 @@ def test_openai_adapter_get_token_count(mock_encoding_for_model: MagicMock) -> N
     mock_encoding.encode.assert_called_once_with("test text")
 
 
-# -----------------------------------------------------------------------------
-# GeminiAdapter Tests
-# -----------------------------------------------------------------------------
+# =============================================================================
+# GeminiAdapter Tests (Updated for google-genai SDK)
+# =============================================================================
 
 
-@patch("google.generativeai.configure")
-@patch("google.generativeai.GenerativeModel")
-def test_gemini_adapter_missing_key(mock_model: MagicMock, mock_configure: MagicMock) -> None:
-    with patch("src.config.settings.gemini_api_key", None):
+def test_gemini_adapter_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Test that initializing the adapter without an API key raises a ValueError.
+    """
+    # Ensure environment variable is unset for the test context
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+
+    with patch("config.settings.gemini_api_key", None):
         with pytest.raises(ValueError, match="Gemini API key is missing"):
             GeminiAdapter(api_key=None)
 
 
-@patch("google.generativeai.configure")
-@patch("google.generativeai.GenerativeModel")
-def test_gemini_adapter_generate_response_retry_success(mock_model_cls: MagicMock, mock_configure: MagicMock) -> None:
-    mock_model_instance = mock_model_cls.return_value
+@patch("adapter.gemini_adapter.genai.Client")
+def test_gemini_adapter_generate_response_retry_success(MockClient: MagicMock) -> None:
+    """
+    Test successful text generation using the new isolated Client architecture
+    and verifying tenacity retry logic.
+    """
+    mock_instance = MockClient.return_value
     mock_response = MagicMock()
     mock_response.text = "Hello Gemini!"
 
-    error = google_exceptions.ResourceExhausted("Quota exceeded")
-    mock_model_instance.generate_content.side_effect = [error, mock_response]
+    # Provide an empty dictionary for the required response_json argument to satisfy the constructor
+    error = APIError("Quota exceeded", {})
+    mock_instance.models.generate_content.side_effect = [error, mock_response]
 
     adapter = GeminiAdapter(api_key="fake-key")
     response = adapter.generate_response("Hi")
 
     assert response == "Hello Gemini!"
-    assert mock_model_instance.generate_content.call_count == 2
+    assert mock_instance.models.generate_content.call_count == 2
 
-
-@patch("google.generativeai.configure")
-@patch("google.generativeai.GenerativeModel")
-def test_gemini_adapter_get_token_count(mock_model_cls: MagicMock, mock_configure: MagicMock) -> None:
-    mock_model_instance = mock_model_cls.return_value
+@patch("adapter.gemini_adapter.genai.Client")
+def test_gemini_adapter_get_token_count(MockClient: MagicMock) -> None:
+    """
+    Test token counting functionality using the updated genai SDK.
+    """
+    # Setup mock for count_tokens
+    mock_instance = MockClient.return_value
     mock_response = MagicMock()
     mock_response.total_tokens = 10
-    mock_model_instance.count_tokens.return_value = mock_response
+    mock_instance.models.count_tokens.return_value = mock_response
 
     adapter = GeminiAdapter(api_key="fake-key")
-    assert adapter.get_token_count("test text") == 10
-    mock_model_instance.count_tokens.assert_called_once_with("test text")
+    result = adapter.get_token_count("test text")
+
+    assert result == 10
+    mock_instance.models.count_tokens.assert_called_once()
