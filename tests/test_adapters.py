@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import openai
-import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 
 from src.adapter.openai_adapter import OpenAIAdapter

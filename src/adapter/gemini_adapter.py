@@ -10,8 +10,8 @@ from tenacity import (
     wait_exponential,
 )
 
-from .base import BaseLLMAdapter
-from ..config import settings
+from src.adapter.base import BaseLLMAdapter
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 

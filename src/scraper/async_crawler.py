@@ -1,6 +1,5 @@
-import asyncio
 import aiohttp
-from typing import List, Set
+from typing import Set
 from bs4 import BeautifulSoup
 from src.adapter.factory import LLMAdapterFactory
 

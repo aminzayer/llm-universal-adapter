@@ -1,2 +1,17 @@
-aiohttp
-BeautifulSoup4
+# LLM Provider SDKs
+openai>=1.14.0
+google-generativeai>=0.4.0
+
+# Configuration and Resilience
+pydantic-settings>=2.2.0
+tenacity>=8.2.0
+
+# Asynchronous Scraper
+aiohttp>=3.9.3
+beautifulsoup4>=4.12.3
+
+# Testing and CI/CD Quality Tools
+pytest>=8.1.1
+pytest-mock>=3.14.0
+ruff>=0.3.4
+mypy>=1.9.0tiktoken>=0.6.0
