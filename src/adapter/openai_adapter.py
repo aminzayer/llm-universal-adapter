@@ -3,6 +3,8 @@ from typing import Any, Optional
 
 import openai
 import tiktoken
+import json
+import inspect
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -37,6 +39,7 @@ class OpenAIAdapter(BaseLLMAdapter):
 
         self.client = openai.Client(api_key=api_key)
         self.model = model
+        super().__init__()
 
     @retry(
         retry=retry_if_exception_type((
@@ -92,8 +95,93 @@ class OpenAIAdapter(BaseLLMAdapter):
 
         return len(encoding.encode(text))
 
+    def _build_openai_tool_schema(self, name: str, func: Any, description: str) -> Any:
+        sig = inspect.signature(func)
+        parameters: dict[str, Any] = {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
+        for param_name, param in sig.parameters.items():
+            if param_name == "self":
+                continue
+            param_type = "string" # Default
+            if param.annotation is int:
+                param_type = "integer"
+            elif param.annotation is float:
+                param_type = "number"
+            elif param.annotation is bool:
+                param_type = "boolean"
+            elif param.annotation is list:
+                param_type = "array"
+
+            parameters["properties"][param_name] = {"type": param_type}
+            if param.default == inspect.Parameter.empty:
+                parameters["required"].append(param_name)
+
+        return {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": parameters,
+            }
+        }
+
     def generate_with_tools(self, prompt: str) -> str:
         """
         Executes a prompt allowing the LLM to utilize registered tools.
         """
-        raise NotImplementedError("Tool calling logic is not yet implemented for this adapter.")
+        if not self.tools:
+            return self.generate_response(prompt)
+
+        openai_tools = [
+            self._build_openai_tool_schema(name, tool_data["function"], tool_data["description"])
+            for name, tool_data in self.tools.items()
+        ]
+
+        messages: list[Any] = [{"role": "user", "content": prompt}]
+
+        logger.debug(f"Sending request to OpenAI with tools using model: {self.model}")
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages, # pyright: ignore
+            tools=openai_tools,
+            temperature=settings.default_temperature,
+        )
+
+        message = response.choices[0].message
+        messages.append(message) # pyright: ignore
+
+        if message.tool_calls:
+            for tool_call in message.tool_calls:
+                function_name = tool_call.function.name # type: ignore
+                function_args = json.loads(tool_call.function.arguments or "{}") # type: ignore
+
+                logger.debug(f"Executing tool {function_name} with args {function_args}")
+                tool_data = self.tools.get(function_name)
+                if not tool_data:
+                    tool_result_str = f"Error: Tool {function_name} not found."
+                else:
+                    try:
+                        tool_result = tool_data["function"](**function_args)
+                        tool_result_str = str(tool_result)
+                    except Exception as e:
+                        tool_result_str = f"Error executing {function_name}: {e}"
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_result_str,
+                })
+
+            # Make a second call to get the final augmented response
+            logger.debug("Sending follow-up request to OpenAI after tool execution")
+            second_response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages, # pyright: ignore
+                temperature=settings.default_temperature,
+            )
+            return second_response.choices[0].message.content or ""
+
+        return message.content or ""
