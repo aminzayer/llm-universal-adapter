@@ -101,6 +101,50 @@ def test_openai_adapter_get_token_count(mock_encoding_for_model: MagicMock) -> N
 # =============================================================================
 
 
+
+@patch("openai.Client")
+def test_openai_adapter_generate_with_tools(mock_client: MagicMock) -> None:
+    """Test tool execution pipeline for OpenAI."""
+    import json
+    mock_instance = mock_client.return_value
+
+    # First response: returns a tool call
+    mock_tool_call = MagicMock()
+    mock_tool_call.id = "call_123"
+    mock_tool_call.function.name = "get_weather"
+    mock_tool_call.function.arguments = json.dumps({"location": "London"})
+
+    first_message = MagicMock()
+    first_message.content = None
+    first_message.tool_calls = [mock_tool_call]
+
+    first_response = MagicMock()
+    first_response.choices = [MagicMock(message=first_message)]
+
+    # Second response: returns the final string
+    second_message = MagicMock()
+    second_message.content = "The weather in London is sunny."
+    second_message.tool_calls = None
+
+    second_response = MagicMock()
+    second_response.choices = [MagicMock(message=second_message)]
+
+    mock_instance.chat.completions.create.side_effect = [first_response, second_response]
+
+    adapter = OpenAIAdapter(api_key="fake-key")
+
+    # Register a test tool
+    def get_weather(location: str) -> str:
+        return f"Weather in {location} is sunny"
+
+    adapter.register_tool("get_weather", get_weather, "Get the weather for a location")
+
+    response = adapter.generate_with_tools("What is the weather in London?")
+
+    assert response == "The weather in London is sunny."
+    assert mock_instance.chat.completions.create.call_count == 2
+
+
 def test_gemini_adapter_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Test that initializing the adapter without an API key raises a ValueError.
@@ -124,7 +168,7 @@ def test_gemini_adapter_generate_response_retry_success(MockClient: MagicMock) -
     mock_response.text = "Hello Gemini!"
 
     # Provide an empty dictionary for the required response_json argument to satisfy the constructor
-    error = APIError("Quota exceeded", {})
+    error = APIError(429, "Quota exceeded")
     mock_instance.models.generate_content.side_effect = [error, mock_response]
 
     adapter = GeminiAdapter(api_key="fake-key")
@@ -149,3 +193,41 @@ def test_gemini_adapter_get_token_count(MockClient: MagicMock) -> None:
 
     assert result == 10
     mock_instance.models.count_tokens.assert_called_once()
+
+
+
+@patch("adapter.gemini_adapter.genai.Client")
+def test_gemini_adapter_generate_with_tools(MockClient: MagicMock) -> None:
+    """Test tool execution pipeline for Gemini."""
+    from google.genai import types
+    mock_instance = MockClient.return_value
+
+    # First response: returns a tool call
+    mock_tool_call = MagicMock()
+    mock_tool_call.name = "get_weather"
+    mock_tool_call.args = {"location": "London"}
+
+    first_response = MagicMock()
+    first_response.text = None
+    first_response.function_calls = [mock_tool_call]
+    first_response.candidates = [MagicMock(content=types.Content(role="model", parts=[]))]
+
+    # Second response: returns the final string
+    second_response = MagicMock()
+    second_response.text = "The weather in London is sunny."
+    second_response.function_calls = None
+
+    mock_instance.models.generate_content.side_effect = [first_response, second_response]
+
+    adapter = GeminiAdapter(api_key="fake-key")
+
+    # Register a test tool
+    def get_weather(location: str) -> str:
+        return f"Weather in {location} is sunny"
+
+    adapter.register_tool("get_weather", get_weather, "Get the weather for a location")
+
+    response = adapter.generate_with_tools("What is the weather in London?")
+
+    assert response == "The weather in London is sunny."
+    assert mock_instance.models.generate_content.call_count == 2

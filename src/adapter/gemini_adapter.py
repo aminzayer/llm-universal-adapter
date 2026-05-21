@@ -90,4 +90,73 @@ class GeminiAdapter(BaseLLMAdapter):
         """
         Executes a prompt allowing the LLM to utilize registered tools.
         """
-        raise NotImplementedError("Tool calling logic is not yet implemented for this adapter.")
+        if not self.tools:
+            return self.generate_response(prompt)
+
+        # The new SDK supports passing Callables directly
+        tools_list = [tool_data["function"] for tool_data in self.tools.values()]
+
+        generation_config = types.GenerateContentConfig(
+            temperature=settings.default_temperature,
+            tools=tools_list
+        )
+
+        logger.debug(f"Sending request to Gemini with tools using model: {self.model_name}")
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=generation_config
+        )
+
+        if response.function_calls:
+            # We need to construct the conversation history manually to send back to the model
+            # For Gemini, conversation context is maintained using a list of types.Content
+            history = [
+                types.Content(role="user", parts=[types.Part.from_text(text=prompt)]),
+                response.candidates[0].content if response.candidates and response.candidates[0].content else types.Content(role="model", parts=[])
+            ]
+
+            tool_responses = []
+            for tool_call in response.function_calls:
+                function_name = tool_call.name or ""
+
+                # Convert the arguments to a dict if it's not already
+                function_args = dict(tool_call.args) if tool_call.args is not None else {} # type: ignore
+
+                logger.debug(f"Executing tool {function_name} with args {function_args}")
+                tool_data = self.tools.get(function_name)
+
+                if not tool_data:
+                    result_dict = {"error": f"Tool {function_name} not found."}
+                else:
+                    try:
+                        tool_result = tool_data["function"](**function_args)
+                        result_dict = {"result": tool_result}
+                    except Exception as e:
+                        result_dict = {"error": f"Error executing {function_name}: {str(e)}"}
+
+                tool_responses.append(
+                    types.Part.from_function_response(
+                        name=function_name,
+                        response=result_dict
+                    )
+                )
+
+            history.append(types.Content(role="tool", parts=tool_responses))
+
+            logger.debug("Sending follow-up request to Gemini after tool execution")
+            second_response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=history,
+                config=types.GenerateContentConfig(temperature=settings.default_temperature)
+            )
+
+            if second_response.text is None:
+                raise ValueError("The model returned an empty response after tool execution.")
+
+            return second_response.text
+
+        if response.text is None:
+            raise ValueError("The model returned an empty response.")
+
+        return response.text
