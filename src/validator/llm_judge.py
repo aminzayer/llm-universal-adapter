@@ -9,7 +9,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from src.adapter.base import BaseLLMAdapter
+from adapter.base import BaseLLMAdapter
 
 logger = logging.getLogger(__name__)
 
