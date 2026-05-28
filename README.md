@@ -42,7 +42,6 @@ To run and develop this application, ensure you have the following installed:
 Create a `.env` file in the root directory. Use `.env.example` as a template.
 
 | Variable | Type | Required/Optional | Description |
-
 |----------|------|-------------------|-------------|
 | `OPENAI_API_KEY` | String | Optional | API key for authenticating with OpenAI. |
 | `GEMINI_API_KEY` | String | Optional | API key for authenticating with Google Gemini. |
@@ -50,7 +49,7 @@ Create a `.env` file in the root directory. Use `.env.example` as a template.
 | `DATABASE_URL` | String | Required | Connection string for PostgreSQL (e.g., `postgresql://user:pass@db:5432/rag_db`). |
 | `REDIS_URL` | String | Required | Connection string for Redis (e.g., `redis://redis:6379/0`). |
 
-*\*At least one LLM API key must be provided depending on your usage.*
+*\*At least one LLM API key must be provided, depending on your usage.*
 
 ## 5. Installation & Local Setup
 
@@ -64,13 +63,13 @@ Create a `.env` file in the root directory. Use `.env.example` as a template.
    source venv/bin/activate
    ```
 
-3.Install dependencies:
+3. Install dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-4.Set up your `.env` file manually.
+4. Set up your `.env` file manually.
 
 ### b) Containerized Setup (Docker Compose)
 
