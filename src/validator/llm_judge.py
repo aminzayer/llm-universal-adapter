@@ -35,7 +35,7 @@ class StrictValidator:
         stop=stop_after_attempt(3),
         reraise=True,
     )
-    def evaluate(self, content: str, criteria: str) -> Dict[str, Any]:
+    async def evaluate(self, content: str, criteria: str) -> Dict[str, Any]:
         """
         Evaluates the content based on the given criteria and returns a JSON result.
         Retries automatically if the LLM fails to return parsable JSON.
@@ -47,19 +47,17 @@ class StrictValidator:
         Returns:
             Dict[str, Any]: The evaluation result in JSON format.
         """
-        prompt = (
-            f"Evaluate the following content based on this criteria: {criteria}\n\n"
-            f"Content:\n{content}\n\n"
-            "You MUST respond ONLY with a valid JSON object containing the evaluation results. "
-            "The JSON must have the exact following keys:\n"
-            "- 'score': a number between 0 and 10 representing the overall score.\n"
-            "- 'reasoning': a string explaining the reasoning for the score.\n"
-            "- 'is_valid': a boolean indicating if the content meets the criteria.\n"
-            "Do not include markdown blocks or any other text outside the JSON."
-        )
+        prompt = (f"Evaluate the following content based on this criteria: {criteria}\n\n"
+                  f"Content:\n{content}\n\n"
+                  "You MUST respond ONLY with a valid JSON object containing the evaluation results. "
+                  "The JSON must have the exact following keys:\n"
+                  "- 'score': a number between 0 and 10 representing the overall score.\n"
+                  "- 'reasoning': a string explaining the reasoning for the score.\n"
+                  "- 'is_valid': a boolean indicating if the content meets the criteria.\n"
+                  "Do not include markdown blocks or any other text outside the JSON.")
 
         logger.debug("Sending evaluation prompt to LLM.")
-        response = self.llm_adapter.generate_response(prompt)
+        response = await self.llm_adapter.generate_response(prompt)
 
         try:
             # Clean potential markdown formatting
@@ -68,10 +66,10 @@ class StrictValidator:
                 clean_response = clean_response[7:]
             elif clean_response.startswith("```"):
                 clean_response = clean_response[3:]
-            
+
             if clean_response.endswith("```"):
                 clean_response = clean_response[:-3]
-                
+
             clean_response = clean_response.strip()
 
             result = json.loads(clean_response)

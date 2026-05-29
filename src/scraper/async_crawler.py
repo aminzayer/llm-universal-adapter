@@ -33,7 +33,7 @@ class AgenticScraper:
         Uses the LLM to determine if the scraped content is highly relevant.
         """
         prompt = f"Evaluate if this text contains technical AI/ML infrastructure details. Return 'YES' or 'NO':\n{text[:1000]}"
-        response = self.llm.generate_response(prompt)
+        response = await self.llm.generate_response(prompt)
         return "YES" in response.upper()
 
     async def crawl(self, start_url: str) -> None:

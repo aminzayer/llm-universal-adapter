@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, AsyncGenerator
 
 import openai
 import tiktoken
@@ -37,7 +37,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         if not api_key:
             raise ValueError("OpenAI API key is missing. Please set OPENAI_API_KEY environment variable or pass it directly.")
 
-        self.client = openai.Client(api_key=api_key)
+        self.client = openai.AsyncClient(api_key=api_key)
         self.model = model
         super().__init__()
 
@@ -51,7 +51,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         stop=stop_after_attempt(5),
         reraise=True,
     )
-    def generate_response(self, prompt: str, **kwargs: Any) -> str:
+    async def generate_response(self, prompt: str, **kwargs: Any) -> str:
         """
         Generates a text response from the OpenAI model.
         Uses exponential backoff for handling rate limits and connection errors.
@@ -66,8 +66,8 @@ class OpenAIAdapter(BaseLLMAdapter):
         if "temperature" not in kwargs:
             kwargs["temperature"] = settings.default_temperature
 
-        logger.debug(f"Sending request to OpenAI using model: {self.model}")
-        response = self.client.chat.completions.create(
+        logger.debug(f"Sending async request to OpenAI using model: {self.model}")
+        response = await self.client.chat.completions.create(
             model=self.model,
             messages=[{
                 "role": "user",
@@ -77,7 +77,18 @@ class OpenAIAdapter(BaseLLMAdapter):
         )
         return response.choices[0].message.content or ""
 
-    def get_token_count(self, text: str) -> int:
+    async def agenerate_stream(self, prompt: str, **kwargs: Any) -> AsyncGenerator[str, None]:
+        if "temperature" not in kwargs:
+            kwargs["temperature"] = settings.default_temperature
+
+        logger.debug(f"Sending async streaming request to OpenAI using model: {self.model}")
+        stream = await self.client.chat.completions.create(model=self.model, messages=[{"role": "user", "content": prompt}], stream=True, **kwargs)
+        async for chunk in stream:
+            content = chunk.choices[0].delta.content
+            if content:
+                yield content
+
+    async def get_token_count(self, text: str) -> int:
         """
         Calculates the number of tokens for the given text using tiktoken.
 
@@ -105,7 +116,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         for param_name, param in sig.parameters.items():
             if param_name == "self":
                 continue
-            param_type = "string" # Default
+            param_type = "string"  # Default
             if param.annotation is int:
                 param_type = "integer"
             elif param.annotation is float:
@@ -128,35 +139,32 @@ class OpenAIAdapter(BaseLLMAdapter):
             }
         }
 
-    def generate_with_tools(self, prompt: str) -> str:
+    async def generate_with_tools(self, prompt: str) -> str:
         """
         Executes a prompt allowing the LLM to utilize registered tools.
         """
         if not self.tools:
-            return self.generate_response(prompt)
+            return await self.generate_response(prompt)
 
-        openai_tools = [
-            self._build_openai_tool_schema(name, tool_data["function"], tool_data["description"])
-            for name, tool_data in self.tools.items()
-        ]
+        openai_tools = [self._build_openai_tool_schema(name, tool_data["function"], tool_data["description"]) for name, tool_data in self.tools.items()]
 
         messages: list[Any] = [{"role": "user", "content": prompt}]
 
-        logger.debug(f"Sending request to OpenAI with tools using model: {self.model}")
-        response = self.client.chat.completions.create(
+        logger.debug(f"Sending async request to OpenAI with tools using model: {self.model}")
+        response = await self.client.chat.completions.create(
             model=self.model,
-            messages=messages, # pyright: ignore
+            messages=messages,  # pyright: ignore
             tools=openai_tools,
             temperature=settings.default_temperature,
         )
 
         message = response.choices[0].message
-        messages.append(message) # pyright: ignore
+        messages.append(message)  # pyright: ignore
 
         if message.tool_calls:
             for tool_call in message.tool_calls:
-                function_name = tool_call.function.name # type: ignore
-                function_args = json.loads(tool_call.function.arguments or "{}") # type: ignore
+                function_name = tool_call.function.name  # type: ignore
+                function_args = json.loads(tool_call.function.arguments or "{}")  # type: ignore
 
                 logger.debug(f"Executing tool {function_name} with args {function_args}")
                 tool_data = self.tools.get(function_name)
@@ -164,7 +172,11 @@ class OpenAIAdapter(BaseLLMAdapter):
                     tool_result_str = f"Error: Tool {function_name} not found."
                 else:
                     try:
-                        tool_result = tool_data["function"](**function_args)
+                        func = tool_data["function"]
+                        if inspect.iscoroutinefunction(func):
+                            tool_result = await func(**function_args)
+                        else:
+                            tool_result = func(**function_args)
                         tool_result_str = str(tool_result)
                     except Exception as e:
                         tool_result_str = f"Error executing {function_name}: {e}"
@@ -176,10 +188,10 @@ class OpenAIAdapter(BaseLLMAdapter):
                 })
 
             # Make a second call to get the final augmented response
-            logger.debug("Sending follow-up request to OpenAI after tool execution")
-            second_response = self.client.chat.completions.create(
+            logger.debug("Sending async follow-up request to OpenAI after tool execution")
+            second_response = await self.client.chat.completions.create(
                 model=self.model,
-                messages=messages, # pyright: ignore
+                messages=messages,  # pyright: ignore
                 temperature=settings.default_temperature,
             )
             return second_response.choices[0].message.content or ""

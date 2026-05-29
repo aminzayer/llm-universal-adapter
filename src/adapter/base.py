@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Any
+from typing import Callable, Dict, Any, AsyncGenerator
 
 
 class BaseLLMAdapter(ABC):
@@ -19,7 +19,7 @@ class BaseLLMAdapter(ABC):
         self.tools[name] = {"function": func, "description": description}
 
     @abstractmethod
-    def generate_with_tools(self, prompt: str) -> str:
+    async def generate_with_tools(self, prompt: str) -> str:
         """
         Forces the specific provider implementation to handle function calling
         using the registered tools.
@@ -27,14 +27,21 @@ class BaseLLMAdapter(ABC):
         pass
 
     @abstractmethod
-    def generate_response(self, prompt: str, **kwargs: Any) -> str:
+    async def generate_response(self, prompt: str, **kwargs: Any) -> str:
         """
         Generates a text response from the underlying LLM.
         """
         pass
 
     @abstractmethod
-    def get_token_count(self, text: str) -> int:
+    def agenerate_stream(self, prompt: str, **kwargs: Any) -> AsyncGenerator[str, None]:
+        """
+        Asynchronously generates a streamed text response from the LLM.
+        """
+        pass
+
+    @abstractmethod
+    async def get_token_count(self, text: str) -> int:
         """
         Calculates the number of tokens for the given text.
         """
