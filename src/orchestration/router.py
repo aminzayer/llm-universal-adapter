@@ -1,8 +1,8 @@
 import logging
 from typing import Any, AsyncGenerator, Callable, Dict, Optional
 
-from src.adapter.base import BaseLLMAdapter
-from src.adapter.factory import LLMAdapterFactory
+from adapter.base import BaseLLMAdapter
+from adapter.factory import LLMAdapterFactory
 
 logger = logging.getLogger(__name__)
 
