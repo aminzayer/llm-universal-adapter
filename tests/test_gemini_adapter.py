@@ -5,7 +5,7 @@ from src.adapter.gemini_adapter import GeminiAdapter
 
 @pytest.fixture
 def mock_genai_client():
-    
+
     with patch('src.adapter.gemini_adapter.genai.Client') as MockClient:
         mock_client_instance = MagicMock()
         mock_aio = MagicMock()
@@ -42,14 +42,14 @@ async def test_agenerate_stream_success(adapter, mock_genai_client):
             chunk.text = word
             yield chunk
 
-    mock_genai_client.models.generate_content_stream = MagicMock(return_value=mock_stream())
+    mock_genai_client.models.generate_content_stream = AsyncMock(return_value=mock_stream())
 
     chunks = []
     async for chunk in adapter.agenerate_stream("Stream this"):
         chunks.append(chunk)
 
     assert "".join(chunks) == "Hello Async World"
-    mock_genai_client.models.generate_content_stream.assert_called_once()
+    mock_genai_client.models.generate_content_stream.assert_awaited_once()
 
 
 @pytest.mark.asyncio

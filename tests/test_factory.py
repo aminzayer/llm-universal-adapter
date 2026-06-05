@@ -1,5 +1,5 @@
 import pytest
-from typing import Any
+from typing import Any, AsyncGenerator
 
 from src.adapter.base import BaseLLMAdapter
 from src.adapter.factory import LLMAdapterFactory
@@ -10,14 +10,18 @@ class DummyAdapter(BaseLLMAdapter):
 
     def __init__(self, api_key: str = None) -> None:
         self.api_key = api_key
+        super().__init__()
 
-    def generate_response(self, prompt: str, **kwargs: Any) -> str:
-            return "dummy response"
+    async def generate_response(self, prompt: str, **kwargs: Any) -> str:
+        return "dummy response"
 
-    def get_token_count(self, text: str) -> int:
+    async def agenerate_stream(self, prompt: str, **kwargs: Any) -> AsyncGenerator[str, None]:
+        yield "dummy stream"
+
+    async def get_token_count(self, text: str) -> int:
         return len(text.split())
 
-    def generate_with_tools(self, prompt: str) -> str:
+    async def generate_with_tools(self, prompt: str) -> str:
         return "dummy tool response"
 
 

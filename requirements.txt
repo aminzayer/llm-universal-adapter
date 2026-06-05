@@ -15,7 +15,10 @@ elasticsearch>=9.4.1
 
 # Testing and CI/CD Quality Tools
 pytest>=8.1.1
+pytest-asyncio>=0.23.0
 pytest-mock>=3.14.0
 ruff>=0.3.4
 mypy>=1.9.0
+
+# Tokenization
 tiktoken>=0.6.0

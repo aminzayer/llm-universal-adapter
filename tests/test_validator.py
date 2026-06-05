@@ -12,7 +12,7 @@ def fast_retries():
     Fixture to mock `time.sleep` used by `tenacity` during backoff.
     This ensures tests involving retries run instantaneously.
     """
-    with patch("tenacity.nap.time.sleep"), patch("tenacity.nap.asyncio.sleep"):
+    with patch("tenacity.nap.time.sleep"), patch("asyncio.sleep"):
         yield
 
 

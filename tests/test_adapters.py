@@ -1,11 +1,11 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
 from google.genai.errors import APIError  # pyright: ignore[reportMissingImports]
 
-from src.adapter.openai_adapter import OpenAIAdapter
-from src.adapter.gemini_adapter import GeminiAdapter
+from adapter.openai_adapter import OpenAIAdapter
+from adapter.gemini_adapter import GeminiAdapter
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +14,7 @@ def fast_retries():
     Fixture to mock `time.sleep` used by `tenacity` during backoff.
     This ensures tests involving retries run instantaneously.
     """
-    with patch("tenacity.nap.time.sleep"):
+    with patch("tenacity.nap.time.sleep"), patch("asyncio.sleep"):
         yield
 
 
@@ -31,23 +31,25 @@ def test_openai_adapter_missing_key() -> None:
             OpenAIAdapter(api_key=None)
 
 
-@patch("openai.Client")
-def test_openai_adapter_generate_response_success(mock_client: MagicMock) -> None:
+@pytest.mark.asyncio
+@patch("src.adapter.openai_adapter.openai.AsyncClient")
+async def test_openai_adapter_generate_response_success(mock_client: MagicMock) -> None:
     """Test successful response generation without retries."""
     mock_instance = mock_client.return_value
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="Hello OpenAI!"))]
-    mock_instance.chat.completions.create.return_value = mock_response
+    mock_instance.chat.completions.create = AsyncMock(return_value=mock_response)
 
     adapter = OpenAIAdapter(api_key="fake-key")
-    response = adapter.generate_response("Hello!")
+    response = await adapter.generate_response("Hello!")
 
     assert response == "Hello OpenAI!"
-    mock_instance.chat.completions.create.assert_called_once()
+    mock_instance.chat.completions.create.assert_awaited_once()
 
 
-@patch("openai.Client")
-def test_openai_adapter_generate_response_retry_success(mock_client: MagicMock) -> None:
+@pytest.mark.asyncio
+@patch("src.adapter.openai_adapter.openai.AsyncClient")
+async def test_openai_adapter_generate_response_retry_success(mock_client: MagicMock) -> None:
     """Test that a RateLimitError triggers a retry and eventually succeeds."""
     mock_instance = mock_client.return_value
     mock_response = MagicMock()
@@ -55,44 +57,46 @@ def test_openai_adapter_generate_response_retry_success(mock_client: MagicMock) 
 
     # Fail twice with RateLimitError, then succeed
     mock_error = openai.RateLimitError(message="Rate limited", response=MagicMock(), body=None)
-    mock_instance.chat.completions.create.side_effect = [
+    mock_instance.chat.completions.create = AsyncMock(side_effect=[
         mock_error,
         mock_error,
         mock_response,
-    ]
+    ])
 
     adapter = OpenAIAdapter(api_key="fake-key")
-    response = adapter.generate_response("Hi")
+    response = await adapter.generate_response("Hi")
 
     assert response == "Hello again!"
     assert mock_instance.chat.completions.create.call_count == 3
 
 
-@patch("openai.Client")
-def test_openai_adapter_generate_response_retry_failure(mock_client: MagicMock) -> None:
+@pytest.mark.asyncio
+@patch("src.adapter.openai_adapter.openai.AsyncClient")
+async def test_openai_adapter_generate_response_retry_failure(mock_client: MagicMock) -> None:
     """Test that repeated failures eventually raise the underlying exception."""
     mock_instance = mock_client.return_value
     mock_error = openai.InternalServerError(message="Server Error", response=MagicMock(), body=None)
-    mock_instance.chat.completions.create.side_effect = mock_error
+    mock_instance.chat.completions.create = AsyncMock(side_effect=mock_error)
 
     adapter = OpenAIAdapter(api_key="fake-key")
 
     with pytest.raises(openai.InternalServerError):
-        adapter.generate_response("Hi")
+        await adapter.generate_response("Hi")
 
     # Tenacity stops after 5 attempts
     assert mock_instance.chat.completions.create.call_count == 5
 
 
-@patch("tiktoken.encoding_for_model")
-def test_openai_adapter_get_token_count(mock_encoding_for_model: MagicMock) -> None:
+@pytest.mark.asyncio
+@patch("src.adapter.openai_adapter.tiktoken.encoding_for_model")
+async def test_openai_adapter_get_token_count(mock_encoding_for_model: MagicMock) -> None:
     """Test token counting logic using tiktoken."""
     mock_encoding = MagicMock()
     mock_encoding.encode.return_value = [1, 2, 3, 4]
     mock_encoding_for_model.return_value = mock_encoding
 
     adapter = OpenAIAdapter(api_key="fake-key")
-    assert adapter.get_token_count("test text") == 4
+    assert await adapter.get_token_count("test text") == 4
     mock_encoding.encode.assert_called_once_with("test text")
 
 
@@ -101,9 +105,9 @@ def test_openai_adapter_get_token_count(mock_encoding_for_model: MagicMock) -> N
 # =============================================================================
 
 
-
-@patch("openai.Client")
-def test_openai_adapter_generate_with_tools(mock_client: MagicMock) -> None:
+@pytest.mark.asyncio
+@patch("src.adapter.openai_adapter.openai.AsyncClient")
+async def test_openai_adapter_generate_with_tools(mock_client: MagicMock) -> None:
     """Test tool execution pipeline for OpenAI."""
     import json
     mock_instance = mock_client.return_value
@@ -129,7 +133,7 @@ def test_openai_adapter_generate_with_tools(mock_client: MagicMock) -> None:
     second_response = MagicMock()
     second_response.choices = [MagicMock(message=second_message)]
 
-    mock_instance.chat.completions.create.side_effect = [first_response, second_response]
+    mock_instance.chat.completions.create = AsyncMock(side_effect=[first_response, second_response])
 
     adapter = OpenAIAdapter(api_key="fake-key")
 
@@ -139,7 +143,7 @@ def test_openai_adapter_generate_with_tools(mock_client: MagicMock) -> None:
 
     adapter.register_tool("get_weather", get_weather, "Get the weather for a location")
 
-    response = adapter.generate_with_tools("What is the weather in London?")
+    response = await adapter.generate_with_tools("What is the weather in London?")
 
     assert response == "The weather in London is sunny."
     assert mock_instance.chat.completions.create.call_count == 2
@@ -157,8 +161,9 @@ def test_gemini_adapter_missing_key(monkeypatch: pytest.MonkeyPatch) -> None:
             GeminiAdapter(api_key=None)
 
 
-@patch("adapter.gemini_adapter.genai.Client")
-def test_gemini_adapter_generate_response_retry_success(MockClient: MagicMock) -> None:
+@pytest.mark.asyncio
+@patch("src.adapter.gemini_adapter.genai.Client")
+async def test_gemini_adapter_generate_response_retry_success(MockClient: MagicMock) -> None:
     """
     Test successful text generation using the new isolated Client architecture
     and verifying tenacity retry logic.
@@ -169,16 +174,18 @@ def test_gemini_adapter_generate_response_retry_success(MockClient: MagicMock) -
 
     # Provide an empty dictionary for the required response_json argument to satisfy the constructor
     error = APIError(429, "Quota exceeded")
-    mock_instance.models.generate_content.side_effect = [error, mock_response]
+    mock_instance.aio.models.generate_content = AsyncMock(side_effect=[error, mock_response])
 
     adapter = GeminiAdapter(api_key="fake-key")
-    response = adapter.generate_response("Hi")
+    response = await adapter.generate_response("Hi")
 
     assert response == "Hello Gemini!"
-    assert mock_instance.models.generate_content.call_count == 2
+    assert mock_instance.aio.models.generate_content.call_count == 2
 
-@patch("adapter.gemini_adapter.genai.Client")
-def test_gemini_adapter_get_token_count(MockClient: MagicMock) -> None:
+
+@pytest.mark.asyncio
+@patch("src.adapter.gemini_adapter.genai.Client")
+async def test_gemini_adapter_get_token_count(MockClient: MagicMock) -> None:
     """
     Test token counting functionality using the updated genai SDK.
     """
@@ -186,18 +193,18 @@ def test_gemini_adapter_get_token_count(MockClient: MagicMock) -> None:
     mock_instance = MockClient.return_value
     mock_response = MagicMock()
     mock_response.total_tokens = 10
-    mock_instance.models.count_tokens.return_value = mock_response
+    mock_instance.aio.models.count_tokens = AsyncMock(return_value=mock_response)
 
     adapter = GeminiAdapter(api_key="fake-key")
-    result = adapter.get_token_count("test text")
+    result = await adapter.get_token_count("test text")
 
     assert result == 10
-    mock_instance.models.count_tokens.assert_called_once()
+    mock_instance.aio.models.count_tokens.assert_awaited_once()
 
 
-
-@patch("adapter.gemini_adapter.genai.Client")
-def test_gemini_adapter_generate_with_tools(MockClient: MagicMock) -> None:
+@pytest.mark.asyncio
+@patch("src.adapter.gemini_adapter.genai.Client")
+async def test_gemini_adapter_generate_with_tools(MockClient: MagicMock) -> None:
     """Test tool execution pipeline for Gemini."""
     from google.genai import types
     mock_instance = MockClient.return_value
@@ -217,7 +224,7 @@ def test_gemini_adapter_generate_with_tools(MockClient: MagicMock) -> None:
     second_response.text = "The weather in London is sunny."
     second_response.function_calls = None
 
-    mock_instance.models.generate_content.side_effect = [first_response, second_response]
+    mock_instance.aio.models.generate_content = AsyncMock(side_effect=[first_response, second_response])
 
     adapter = GeminiAdapter(api_key="fake-key")
 
@@ -227,7 +234,7 @@ def test_gemini_adapter_generate_with_tools(MockClient: MagicMock) -> None:
 
     adapter.register_tool("get_weather", get_weather, "Get the weather for a location")
 
-    response = adapter.generate_with_tools("What is the weather in London?")
+    response = await adapter.generate_with_tools("What is the weather in London?")
 
     assert response == "The weather in London is sunny."
-    assert mock_instance.models.generate_content.call_count == 2
+    assert mock_instance.aio.models.generate_content.call_count == 2
