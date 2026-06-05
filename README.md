@@ -1,148 +1,49 @@
 # LLM Universal Adapter
 
-![CI Pipeline](https://github.com/placeholder/repo/actions/workflows/ci.yml/badge.svg)
-![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![CI Pipeline](https://github.com/aminzayer/llm-universal-adapter/actions/workflows/ci.yml/badge.svg)](https://github.com/aminzayer/llm-universal-adapter/actions)
 
-## 1. Title & Overview
+A robust, universal, and fully asynchronous Python adapter for interacting with Large Language Models (LLMs) like OpenAI (`gpt-4o`) and Google Gemini (`gemini-2.5-flash`).
 
-**LLM Universal Adapter** is a resilient backend service designed to standardize and streamline interactions with various Large Language Models (LLMs) such as OpenAI and Google Gemini. The system includes an asynchronous web scraper and utilizes a PostgreSQL database with the `pgvector` extension for Retrieval-Augmented Generation (RAG) capabilities, supported by Redis for caching or background tasks.
+## Core Features
 
-## 2. Architecture & Tech Stack
+* **Fully Asynchronous (asyncio)**: All generation, streaming, and tool execution methods use `async/await` for optimal I/O performance and non-blocking architecture.
+* **Router Manager & Failover**: Automatically intercepts API and rate-limit errors from the primary provider and seamlessly re-routes the exact prompt and tools to a fallback model.
+* **Semantic Caching**: Leverages embeddings to calculate cosine similarity between prompts. Short-circuits LLM calls if a semantically similar prompt exceeds the confidence threshold (e.g., 0.95) to save API costs and reduce latency.
+* **Agentic Scraper**: Includes an asynchronous web crawler that leverages the LLM to evaluate the relevance of scraped technical web content.
+* **Strict JSON Validator**: Uses `tenacity` for robust exponential backoff, enforcing strict JSON schema formatting and automated retries.
+* **Universal MCP Tools Integration**: Standardized function calling schemas across all supported LLM providers.
 
-- **Language**: Python 3.11+
-- **Application Server**: uWSGI
-- **Configuration**: Pydantic Settings
-- **LLM SDKs**: `openai`, `google-genai`
-- **Scraping**: `aiohttp`, `beautifulsoup4`
-- **Resilience**: `tenacity`
-- **Database**: PostgreSQL (with `pgvector` via `ankane/pgvector`)
-- **Search**: Elasticsearch
-- **Cache / Message Broker**: Redis
+## Installation
 
-### High-Level Architecture
-
-- **API**: Serves incoming requests utilizing a unified adapter pattern to interface with multiple LLM providers.
-- **Adapters (`src/adapter/`)**: Implements specific logic for OpenAI and Gemini using a factory pattern.
-- **Scraper (`src/scraper/`)**: Features an asynchronous crawler for data ingestion.
-- **Tools (`src/tools/`)**: Provides external integration plugins, such as `ElasticsearchDiscoveryTool` for advanced retrieval.
-- **Validator (`src/validator/`)**: Features LLM-based output validation (`StrictValidator`) for strict format and semantic checking.
-- **Data Storage**: A containerized PostgreSQL database configured for RAG using pgvector, and a Redis instance.
-
-## 3. Prerequisites
-
-To run and develop this application, ensure you have the following installed:
-
-- **Python**: 3.11 or higher
-- **Docker**: Latest version (for containerized deployment)
-- **Docker Compose**: Latest version (for orchestrating DB, Redis, and API)
-
-## 4. Environment Variables
-
-Create a `.env` file in the root directory. Use `.env.example` as a template.
-
-| Variable | Type | Required/Optional | Description |
-|----------|------|-------------------|-------------|
-| `OPENAI_API_KEY` | String | Optional | API key for authenticating with OpenAI. |
-| `GEMINI_API_KEY` | String | Optional | API key for authenticating with Google Gemini. |
-| `DEFAULT_TEMPERATURE` | Float | Optional | Default temperature setting for LLM responses (default: `0.7`). |
-| `DATABASE_URL` | String | Required | Connection string for PostgreSQL (e.g., `postgresql://user:pass@db:5432/rag_db`). |
-| `REDIS_URL` | String | Required | Connection string for Redis (e.g., `redis://redis:6379/0`). |
-
-*\*At least one LLM API key must be provided, depending on your usage.*
-
-## 5. Installation & Local Setup
-
-### a) Bare-metal / Local Virtual Environment
-
-1. Clone the repository and navigate into the directory.
-2. Create and activate a Python virtual environment:
+Make sure you have Python 3.11+ installed. Install the required project dependencies using `pip`:
 
 ```bash
-   python3.11 -m venv venv
-   source venv/bin/activate
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Set up your `.env` file manually.
-
-### b) Containerized Setup (Docker Compose)
-
-1. Ensure Docker and Docker Compose are installed and running.
-2. Build and start the services:
-
-   ```bash
-   docker-compose up --build -d
-   ```
-
-This will spin up the `api`, `db` (PostgreSQL + pgvector), and `redis` containers.
-
-## 6. Usage & Execution
-
-### Starting the Core Application
-
-If running bare-metal, use the following `uwsgi` command to start the application:
-
-```bash
-uwsgi --http :8000 --module src.main:app --processes 4 --threads 2
+pip install -r requirements.txt
 ```
 
-If using Docker Compose, the services will start automatically when you run:
+## Configuration
+
+Ensure your environment variables are configured. You can export them directly or use a `.env` file:
 
 ```bash
-docker-compose up
+export OPENAI_API_KEY="your-openai-api-key"
+export GEMINI_API_KEY="your-gemini-api-key"
 ```
 
-### Stopping the Containerized Application
+## Running Tests
+
+The project includes a comprehensive asynchronous test suite built with `pytest` and `pytest-asyncio`. Tests use mocks to avoid making live network requests.
+
+To run the test suite:
 
 ```bash
-docker-compose down
+pytest tests/ -v
 ```
 
-## 7. Testing & Linting
+## Architecture
 
-The project enforces code quality through tests, static type checking, and linting. Make sure to install the testing dependencies before running these commands:
-
-```bash
-pip install pytest pytest-mock ruff mypy tiktoken
-```
-
-### Unit & Integration Tests
-
-Run tests using `pytest` with the configuration defined in `pytest.ini`:
-
-```bash
-pytest tests/
-```
-
-### Static Type Checking
-
-Check typing with `mypy` using configurations mapped in `pyproject.toml`:
-
-```bash
-mypy src/
-```
-
-### Linting & Formatting
-
-Ensure code styling and catch errors with `ruff`:
-
-```bash
-ruff check .
-```
-
-## 8. API / Core Interfaces
-
-- **Application Entry Point**: The primary module to run the API is expected to be at `src.main:app`.
-- **Adapter Factory**: The main interaction layer for models is routed through `src/adapter/factory.py`, instantiating logic from `openai_adapter.py` and `gemini_adapter.py`.
-- **Asynchronous Crawler**: Used for fetching context data via `src/scraper/async_crawler.py`.
-
-## 9. Deployment
-
-- **CI/CD Pipeline**: GitHub Actions workflows are defined in `.github/workflows/ci.yml`. The pipeline automatically tests against Python 3.11 by installing dependencies, running `ruff`, `mypy`, and `pytest` on every push and pull request to the `main` branch.
-- **Docker Deployment**: The `docker-compose.yml` configures an optimized multi-container environment ready for deployment to cloud providers supporting Docker Compose or as a starting point for Kubernetes orchestration.
+* `src/adapter/`: Contains the Abstract Base Class and concrete implementations (`OpenAIAdapter`, `GeminiAdapter`).
+* `src/orchestration/`: Includes the `RouterManager` for failover logic.
+* `src/cache/`: Contains the `SemanticCache` layer and its decorators.
+* `src/scraper/`: Houses the `AgenticScraper` for BFS asynchronous crawling.
+* `src/validator/`: Contains the `StrictValidator` for JSON output evaluation.
