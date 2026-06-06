@@ -30,8 +30,10 @@ def test_register_and_create_adapter() -> None:
     LLMAdapterFactory.register_adapter("dummy", DummyAdapter)
     adapter = LLMAdapterFactory.create_adapter("dummy", api_key="secret-key")
 
-    assert isinstance(adapter, DummyAdapter)
-    assert adapter.api_key == "secret-key"
+    from telemetry.tracer import ObservabilityMiddleware
+    assert isinstance(adapter, ObservabilityMiddleware)
+    assert isinstance(adapter.adapter, DummyAdapter)
+    assert adapter.adapter.api_key == "secret-key"
 
 
 def test_create_unregistered_adapter() -> None:

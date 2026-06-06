@@ -25,4 +25,8 @@ class LLMAdapterFactory:
         adapter_class = cls._adapters.get(provider_name.lower())
         if not adapter_class:
             raise ValueError(f"Provider '{provider_name}' is not registered.")
-        return adapter_class(**kwargs)
+
+        adapter_instance = adapter_class(**kwargs)
+
+        from telemetry.tracer import ObservabilityMiddleware
+        return ObservabilityMiddleware(adapter=adapter_instance, provider=provider_name)
