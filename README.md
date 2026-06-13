@@ -24,8 +24,13 @@
 
 - **API**: Serves incoming requests utilizing a unified adapter pattern to interface with multiple LLM providers.
 - **Adapters (`src/adapter/`)**: Implements specific logic for OpenAI and Gemini using a factory pattern.
-- **Scraper (`src/scraper/`)**: Features an asynchronous crawler for data ingestion.
-- **Tools (`src/tools/`)**: Provides external integration plugins, such as `ElasticsearchDiscoveryTool` for advanced retrieval.
+- **Cache (`src/src/cache/`)**: Includes a `SemanticCache` layer that uses embeddings and cosine similarity to find semantically similar prompts and reduce redundant LLM calls.
+- **Memory (`src/memory/`)**: Implements `ConversationManager` to handle multi-turn conversation states using a sliding window algorithm to strictly enforce token limits.
+- **Orchestration (`src/orchestration/`)**: Features a `RouterManager` that acts as a robust fallback mechanism, automatically re-routing requests from a primary to a secondary adapter upon failure.
+- **Scraper (`src/scraper/`)**: Features an asynchronous crawler (`AgenticScraper`) using LLMs to evaluate content relevance for data ingestion.
+- **Telemetry (`src/telemetry/`)**: Provides an `ObservabilityMiddleware` to intercept LLM requests/responses and structured logging for latency, token usage, and cache metrics.
+- **Tools (`src/tools/`)**: Provides external integration plugins, such as `ElasticsearchDiscoveryTool` for advanced retrieval and ensuring source domain diversity.
+- **Utils (`src/utils/`)**: Includes `StructuredGenerator`, a utility utilizing Pydantic schemas and auto-retry to strictly enforce LLM JSON output structures.
 - **Validator (`src/validator/`)**: Features LLM-based output validation (`StrictValidator`) for strict format and semantic checking.
 - **Data Storage**: A containerized PostgreSQL database configured for RAG using pgvector, and a Redis instance.
 
@@ -140,7 +145,14 @@ ruff check .
 
 - **Application Entry Point**: The primary module to run the API is expected to be at `src.main:app`.
 - **Adapter Factory**: The main interaction layer for models is routed through `src/adapter/factory.py`, instantiating logic from `openai_adapter.py` and `gemini_adapter.py`.
-- **Asynchronous Crawler**: Used for fetching context data via `src/scraper/async_crawler.py`.
+- **Router Manager**: `src/orchestration/router.py` wraps the adapter factory to seamlessly handle fallback from a primary adapter to a secondary adapter.
+- **Conversation Manager**: `src/memory/manager.py` dynamically maintains multi-turn conversation states within the limits of the model context window.
+- **Observability Middleware**: `src/telemetry/tracer.py` automatically intercepts adapters for token, cache, and latency logging.
+- **Structured Generator**: `src/utils/structured.py` utilizes the underlying LLM to strictly conform generated output to a given Pydantic schema with automated retries.
+- **Semantic Cache**: `src/src/cache/semantic.py` implements a decorator caching layer powered by vector embeddings to efficiently reuse similar LLM requests.
+- **Asynchronous Crawler**: Used for fetching context data via `src/scraper/async_crawler.py` utilizing the `AgenticScraper` to score web pages.
+- **LLM Judge / Validator**: `src/validator/llm_judge.py` evaluates strings of content rigorously via prompts using `StrictValidator`.
+- **Elasticsearch Tool**: `src/tools/es_discovery.py` defines the `ElasticsearchDiscoveryTool` plugin to query documents and enforce source domain diversity.
 
 ## 9. Deployment
 
