@@ -24,13 +24,8 @@
 
 - **API**: Serves incoming requests utilizing a unified adapter pattern to interface with multiple LLM providers.
 - **Adapters (`src/adapter/`)**: Implements specific logic for OpenAI and Gemini using a factory pattern.
-- **Cache (`src/src/cache/`)**: Includes a `SemanticCache` layer that uses embeddings and cosine similarity to find semantically similar prompts and reduce redundant LLM calls.
-- **Memory (`src/memory/`)**: Implements `ConversationManager` to handle multi-turn conversation states using a sliding window algorithm to strictly enforce token limits.
-- **Orchestration (`src/orchestration/`)**: Features a `RouterManager` that acts as a robust fallback mechanism, automatically re-routing requests from a primary to a secondary adapter upon failure.
-- **Scraper (`src/scraper/`)**: Features an asynchronous crawler (`AgenticScraper`) using LLMs to evaluate content relevance for data ingestion.
-- **Telemetry (`src/telemetry/`)**: Provides an `ObservabilityMiddleware` to intercept LLM requests/responses and structured logging for latency, token usage, and cache metrics.
-- **Tools (`src/tools/`)**: Provides external integration plugins, such as `ElasticsearchDiscoveryTool` for advanced retrieval and ensuring source domain diversity.
-- **Utils (`src/utils/`)**: Includes `StructuredGenerator`, a utility utilizing Pydantic schemas and auto-retry to strictly enforce LLM JSON output structures.
+- **Scraper (`src/scraper/`)**: Features an asynchronous crawler for data ingestion.
+- **Tools (`src/tools/`)**: Provides external integration plugins, such as `ElasticsearchDiscoveryTool` for advanced retrieval.
 - **Validator (`src/validator/`)**: Features LLM-based output validation (`StrictValidator`) for strict format and semantic checking.
 - **Data Storage**: A containerized PostgreSQL database configured for RAG using pgvector, and a Redis instance.
 
@@ -46,13 +41,13 @@ To run and develop this application, ensure you have the following installed:
 
 Create a `.env` file in the root directory. Use `.env.example` as a template.
 
-| Variable | Type | Required/Optional | Description |
-|----------|------|-------------------|-------------|
-| `OPENAI_API_KEY` | String | Optional | API key for authenticating with OpenAI. |
-| `GEMINI_API_KEY` | String | Optional | API key for authenticating with Google Gemini. |
-| `DEFAULT_TEMPERATURE` | Float | Optional | Default temperature setting for LLM responses (default: `0.7`). |
-| `DATABASE_URL` | String | Required | Connection string for PostgreSQL (e.g., `postgresql://user:pass@db:5432/rag_db`). |
-| `REDIS_URL` | String | Required | Connection string for Redis (e.g., `redis://redis:6379/0`). |
+| Variable | Type | Required/Optional | Description |.
+|----------|------|-------------------|-------------|.
+| `OPENAI_API_KEY` | String | Optional | API key for authenticating with OpenAI. |.
+| `GEMINI_API_KEY` | String | Optional | API key for authenticating with Google Gemini. |.
+| `DEFAULT_TEMPERATURE` | Float | Optional | Default temperature setting for LLM responses (default: `0.7`). |.
+| `DATABASE_URL` | String | Required | Connection string for PostgreSQL (e.g., `postgresql://user:pass@db:5432/rag_db`). |.
+| `REDIS_URL` | String | Required | Connection string for Redis (e.g., `redis://redis:6379/0`). |.
 
 *\*At least one LLM API key must be provided, depending on your usage.*
 
@@ -68,13 +63,13 @@ Create a `.env` file in the root directory. Use `.env.example` as a template.
    source venv/bin/activate
    ```
 
-3. Install dependencies:
+1. Install dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Set up your `.env` file manually.
+2. Set up your `.env` file manually.
 
 ### b) Containerized Setup (Docker Compose)
 
@@ -91,10 +86,10 @@ This will spin up the `api`, `db` (PostgreSQL + pgvector), and `redis` container
 
 ### Starting the Core Application
 
-If running bare-metal, use the following `uwsgi` command to start the application:
+If running bare-metal, use the following `uvicorn` command to start the application:
 
 ```bash
-uwsgi --http :8000 --module src.main:app --processes 4 --threads 2
+uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 
 If using Docker Compose, the services will start automatically when you run:
@@ -145,14 +140,7 @@ ruff check .
 
 - **Application Entry Point**: The primary module to run the API is expected to be at `src.main:app`.
 - **Adapter Factory**: The main interaction layer for models is routed through `src/adapter/factory.py`, instantiating logic from `openai_adapter.py` and `gemini_adapter.py`.
-- **Router Manager**: `src/orchestration/router.py` wraps the adapter factory to seamlessly handle fallback from a primary adapter to a secondary adapter.
-- **Conversation Manager**: `src/memory/manager.py` dynamically maintains multi-turn conversation states within the limits of the model context window.
-- **Observability Middleware**: `src/telemetry/tracer.py` automatically intercepts adapters for token, cache, and latency logging.
-- **Structured Generator**: `src/utils/structured.py` utilizes the underlying LLM to strictly conform generated output to a given Pydantic schema with automated retries.
-- **Semantic Cache**: `src/src/cache/semantic.py` implements a decorator caching layer powered by vector embeddings to efficiently reuse similar LLM requests.
-- **Asynchronous Crawler**: Used for fetching context data via `src/scraper/async_crawler.py` utilizing the `AgenticScraper` to score web pages.
-- **LLM Judge / Validator**: `src/validator/llm_judge.py` evaluates strings of content rigorously via prompts using `StrictValidator`.
-- **Elasticsearch Tool**: `src/tools/es_discovery.py` defines the `ElasticsearchDiscoveryTool` plugin to query documents and enforce source domain diversity.
+- **Asynchronous Crawler**: Used for fetching context data via `src/scraper/async_crawler.py`.
 
 ## 9. Deployment
 

@@ -12,11 +12,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Running the App
 
-- Local (Bare-metal): `uwsgi --http :8000 --module src.main:app --processes 4 --threads 2`
+- Local (Bare-metal): `uvicorn src.main:app --host 0.0.0.0 --port 8000`
 - Containerized: `docker-compose up --build -d`
 - Stop Containers: `docker-compose down`
 
-> Note: `docker-compose.yml` and the README both reference `src.main:app` as the WSGI entry, but `src/main.py` does not yet exist in this repo. If you start the API locally, you'll need to create it (or import an existing app object) before the `uwsgi` command will work.
+> Note: `docker-compose.yml` and the README both reference `src.main:app` as the entry point. With the transition to FastAPI, we use ASGI servers like `uvicorn` instead of `uwsgi` to properly support asynchronous streaming.
 
 ### Testing & Quality
 
