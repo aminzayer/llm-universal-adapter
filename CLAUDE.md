@@ -6,17 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Setup & Environment
 
-- Install dependencies: `pip install -r requirements.txt`
-- Install dev tools: `pip install pytest pytest-mock ruff mypy tiktoken`
-- Copy `.env.example` to `.env` and set at least one LLM API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`).
+- Install dependencies: `pip install -r requirements.txt` (dev tools — pytest, pytest-mock, ruff, mypy, tiktoken — are already pinned in `requirements.txt`).
+- Copy `.env.example` to `.env` and set at least one LLM API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`). The example file only ships LLM keys; the connection vars below must be added by hand for full-stack local runs.
 
 ### Running the App
 
-- Local (Bare-metal): `uvicorn src.main:app --host 0.0.0.0 --port 8000`
+- Local (bare-metal): `uvicorn src.main:app --host 0.0.0.0 --port 8000`
 - Containerized: `docker-compose up --build -d`
-- Stop Containers: `docker-compose down`
+- Stop containers: `docker-compose down`
 
-> Note: `docker-compose.yml` and the README both reference `src.main:app` as the entry point. With the transition to FastAPI, we use ASGI servers like `uvicorn` instead of `uwsgi` to properly support asynchronous streaming.
+> The app is a FastAPI ASGI app — use `uvicorn` (or any ASGI server), not `uwsgi`. The README and `docker-compose.yml` still mention `uwsgi` historically; ignore those references.
 
 ### Testing & Quality
 
@@ -55,20 +54,41 @@ LLM Universal Adapter is a resilient async backend service that standardizes int
 - **Scraper (`src/scraper/async_crawler.py`)**: `AgenticScraper` does BFS via `aiohttp` + `BeautifulSoup` and uses an LLM (via the factory) to evaluate page relevance. Fetch timeout is 10s per page.
 - **Tools (`src/tools/es_discovery.py`)**: `ElasticsearchDiscoveryTool` is designed to be registered via `adapter.register_tool(...)`. Enforces source diversity (max per-domain cap) over a 5×-oversampled result set.
 
+### API Surface (`src/main.py`)
+
+FastAPI app exposing an OpenAI-compatible contract. `AppState` (a plain module-level singleton) holds the asyncpg pool, redis client, and the `RouterManager`. The `lifespan` async context manager wires all three up at startup if their env vars are set, and tears them down on shutdown.
+
+- `GET /v1/health` — basic liveness, returns `{"status": "ok"}`.
+- `POST /v1/chat/completions` — OpenAI-shaped body (`model`, `messages`, `temperature`, `stream`, `max_tokens`). `stream=True` returns `text/event-stream` SSE; otherwise a single JSON response. Delegates to `app_state.router_manager`. The `usage` block is always zeroed out — token accounting is not surfaced here.
+
 ### Configuration (`src/config.py`)
 
-Pydantic Settings loads from `.env`. Only `openai_api_key`, `gemini_api_key`, and `default_temperature` (default `0.7`) are exposed. `DATABASE_URL` and `REDIS_URL` are referenced in `docker-compose.yml` but not yet read by `Settings` — they exist for the (planned) `main.py` WSGI app.
+Pydantic Settings loads from `.env`. Only `openai_api_key`, `gemini_api_key`, and `default_temperature` (default `0.7`) are exposed.
+
+`DATABASE_URL`, `REDIS_URL`, `PRIMARY_PROVIDER` (default `openai`), and `FALLBACK_PROVIDER` (default `gemini`) are **not** in `Settings` — they are read directly by `src/main.py` via `os.getenv` inside the lifespan handler. If they're missing, `db_pool` and `redis_pool` stay `None` and the app still starts (the chat endpoint will work, but the cache/db layers won't). `mypy` strictness is relaxed for `tiktoken`, `google.*`, and `tenacity.*` in `pyproject.toml`.
 
 ### Tech Stack & Infrastructure
 
 - **Language**: Python 3.11+
-- **Application Server**: uWSGI (entry: `src.main:app`)
+- **Web Framework**: FastAPI (entry: `src.main:app`), served via `uvicorn` (not `uwsgi`)
 - **LLM SDKs**: `openai>=1.14.0`, `google-genai>=0.3.0`
 - **Resilience**: `tenacity` (exponential backoff, retries on provider-specific errors)
 - **Async HTTP**: `aiohttp`, `beautifulsoup4`
 - **Tokenization**: `tiktoken` (OpenAI only; Gemini counts via API)
+- **DB Driver**: `asyncpg`
 - **Database**: PostgreSQL with `pgvector` (RAG), via `ankane/pgvector` image
-- **Cache/Broker**: Redis
+- **Cache/Broker**: Redis (`redis>=8.0.0`)
 - **Search**: Elasticsearch
 - **Deployment**: Docker Compose (api + db + redis)
-- **CI**: GitHub Actions in `.github/workflows/ci.yml` — runs `ruff`, `mypy`, `pytest` on push/PR to `main`
+- **CI**: GitHub Actions in `.github/workflows/ci.yml` — runs `ruff`, `mypy`, `pytest` on push/PR to `main` (Python 3.11)
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
