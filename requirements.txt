@@ -35,3 +35,5 @@ mypy>=1.0.0
 
 # Web Framework for API
 fastapi>=0.137.0
+asyncpg>=0.31.0
+redis>=8.0.0
