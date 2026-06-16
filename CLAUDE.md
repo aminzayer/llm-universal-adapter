@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Setup & Environment
 
-- Install dependencies: `pip install -r requirements.txt` (dev tools — pytest, pytest-mock, ruff, mypy, tiktoken — are already pinned in `requirements.txt`).
-- Copy `.env.example` to `.env` and set at least one LLM API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`). The example file only ships LLM keys; the connection vars below must be added by hand for full-stack local runs.
+- Install dependencies: `pip install -r requirements.txt` (dev tools — pytest, pytest-mock, ruff, mypy, tiktoken — are already pinned in `requirements.txt`). Note: `requirements.txt` has duplicate entries for `pytest`, `tiktoken`, and `mypy` with different version floors; pip resolves to the higher floor, but edit with care.
+- Copy `.env.example` to `.env` and set at least one LLM API key (`OPENAI_API_KEY` or `GEMINI_API_KEY`). The example file only ships LLM keys; the connection vars below must be added by hand for full-stack local runs. A `.venv/` is already present in the repo root — activate it with `source .venv/bin/activate` instead of creating a new one.
 
 ### Running the App
 

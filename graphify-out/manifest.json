@@ -1,0 +1,177 @@
+{
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/adapter/__init__.py": {
+    "mtime": 1779883858.7454739,
+    "ast_hash": "39da3313e01e718785034b14274d1bae",
+    "semantic_hash": "39da3313e01e718785034b14274d1bae"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/adapter/base.py": {
+    "mtime": 1780060328.6575813,
+    "ast_hash": "855ba82873d31ac36e3295036221355b",
+    "semantic_hash": "855ba82873d31ac36e3295036221355b"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/adapter/factory.py": {
+    "mtime": 1780758934.5959053,
+    "ast_hash": "c2f99d586310f1eb19f4fe8f9eeb04fc",
+    "semantic_hash": "c2f99d586310f1eb19f4fe8f9eeb04fc"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/adapter/gemini_adapter.py": {
+    "mtime": 1780058196.9465353,
+    "ast_hash": "9748fddd3991735d091282c78431247a",
+    "semantic_hash": "9748fddd3991735d091282c78431247a"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/adapter/openai_adapter.py": {
+    "mtime": 1780059900.2774048,
+    "ast_hash": "8aad0f02f14596480013429b4a2b56de",
+    "semantic_hash": "8aad0f02f14596480013429b4a2b56de"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/cache/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/cache/semantic.py": {
+    "mtime": 1781522934.1828947,
+    "ast_hash": "075e3fb0b3466f97d0f13db9a3cc9f56",
+    "semantic_hash": "075e3fb0b3466f97d0f13db9a3cc9f56"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/config.py": {
+    "mtime": 1777891152.249096,
+    "ast_hash": "af8d0b50a7d3a0b596a49d9a978d24a1",
+    "semantic_hash": "af8d0b50a7d3a0b596a49d9a978d24a1"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/main.py": {
+    "mtime": 1781464479.1737819,
+    "ast_hash": "8d7a9ef2185493c49a057279d3ffaf1b",
+    "semantic_hash": "8d7a9ef2185493c49a057279d3ffaf1b"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/memory/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/memory/manager.py": {
+    "mtime": 1780824608.7889488,
+    "ast_hash": "3d735ba549178bfb5ec0c9df8e157bda",
+    "semantic_hash": "3d735ba549178bfb5ec0c9df8e157bda"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/orchestration/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/orchestration/router.py": {
+    "mtime": 1780651619.163549,
+    "ast_hash": "960ceb4ece63249aa23c79e2432f653b",
+    "semantic_hash": "960ceb4ece63249aa23c79e2432f653b"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/scraper/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/scraper/async_crawler.py": {
+    "mtime": 1780058324.703503,
+    "ast_hash": "631fb58213caec3b177c098a7bee4b29",
+    "semantic_hash": "631fb58213caec3b177c098a7bee4b29"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/telemetry/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/telemetry/tracer.py": {
+    "mtime": 1780759053.1337516,
+    "ast_hash": "b7d5172b9dc9fd26d10345df4674d47c",
+    "semantic_hash": "b7d5172b9dc9fd26d10345df4674d47c"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/tools/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/tools/es_discovery.py": {
+    "mtime": 1779873388.2591736,
+    "ast_hash": "3662eb10b0387771e6692005bc311a9b",
+    "semantic_hash": "3662eb10b0387771e6692005bc311a9b"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/utils/structured.py": {
+    "mtime": 1781106418.0518844,
+    "ast_hash": "39ee4db7f7f73cecc9e1ddc468bd7a7c",
+    "semantic_hash": "39ee4db7f7f73cecc9e1ddc468bd7a7c"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/validator/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/src/validator/llm_judge.py": {
+    "mtime": 1780652128.992465,
+    "ast_hash": "b41dfaf1145e9919dd8396309ba65bcb",
+    "semantic_hash": "b41dfaf1145e9919dd8396309ba65bcb"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/__init__.py": {
+    "mtime": 1778662332.9303749,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/test_adapters.py": {
+    "mtime": 1780652304.4003556,
+    "ast_hash": "1787b1ee79a93fef0143e7d89badb2f2",
+    "semantic_hash": "1787b1ee79a93fef0143e7d89badb2f2"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/test_factory.py": {
+    "mtime": 1780759247.3067458,
+    "ast_hash": "9f68dc12fba7cac461514de7187965cf",
+    "semantic_hash": "9f68dc12fba7cac461514de7187965cf"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/test_gemini_adapter.py": {
+    "mtime": 1780652662.173492,
+    "ast_hash": "b039e84f48c5dca7926dc2a87e70554d",
+    "semantic_hash": "b039e84f48c5dca7926dc2a87e70554d"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/test_manager.py": {
+    "mtime": 1780824547.5844164,
+    "ast_hash": "6654d4ef89d7b9974bd068bee7aacadf",
+    "semantic_hash": "6654d4ef89d7b9974bd068bee7aacadf"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/test_structured.py": {
+    "mtime": 1781106395.0288863,
+    "ast_hash": "7e51bbb468fd959597729af68cc2e05f",
+    "semantic_hash": "7e51bbb468fd959597729af68cc2e05f"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/test_telemetry.py": {
+    "mtime": 1780759247.4785936,
+    "ast_hash": "3880c0f73f8f06fdabaedb2c2c935612",
+    "semantic_hash": "3880c0f73f8f06fdabaedb2c2c935612"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/tests/test_validator.py": {
+    "mtime": 1780652304.5030851,
+    "ast_hash": "19d205c5e57ca6d87b58ef3dfb53bc77",
+    "semantic_hash": "19d205c5e57ca6d87b58ef3dfb53bc77"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/.github/workflows/ci.yml": {
+    "mtime": 1778693006.7881787,
+    "ast_hash": "98ba005fc54fcc84aa651a79bcaa6276",
+    "semantic_hash": "98ba005fc54fcc84aa651a79bcaa6276"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/CLAUDE.md": {
+    "mtime": 1781537657.166811,
+    "ast_hash": "e747be54201ed0eb25cb4aa0dfd7c15f",
+    "semantic_hash": "e747be54201ed0eb25cb4aa0dfd7c15f"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/README.md": {
+    "mtime": 1781464051.7018774,
+    "ast_hash": "fe6ed37328ac093c23cbc54ff4ae75d6",
+    "semantic_hash": "fe6ed37328ac093c23cbc54ff4ae75d6"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/docker-compose.yml": {
+    "mtime": 1778611831.9822586,
+    "ast_hash": "7d007199029ec1e060de34fc8a57cd0e",
+    "semantic_hash": "7d007199029ec1e060de34fc8a57cd0e"
+  },
+  "/Users/aminzayer/MyGit/My-GitHub/llm-universal-adapter/requirements.txt": {
+    "mtime": 1781522806.0229006,
+    "ast_hash": "66ff82f5f3fe96f23d870315bcb6b457",
+    "semantic_hash": "66ff82f5f3fe96f23d870315bcb6b457"
+  }
+}
