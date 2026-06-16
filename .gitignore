@@ -7,5 +7,8 @@
 .pytest_cache
 .ruff_cache
 /.claude
+graphify-out
+/graphify-out
+/graphify-out/*
 __pycache__
 /__pycache__/*
