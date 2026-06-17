@@ -17,10 +17,33 @@ class LLMAdapterFactory:
         cls._adapters[provider_name.lower()] = adapter_class
 
     @classmethod
-    def create_adapter(cls, provider_name: str, **kwargs: Any) -> BaseLLMAdapter:
+    def create_adapter(
+        cls,
+        provider_name: str,
+        *,
+        enable_guardrail: bool = False,
+        block_on_pii: bool = False,
+        **kwargs: Any,
+    ) -> BaseLLMAdapter:
         """
         Creates and returns an instance of the requested LLM adapter.
         Raises ValueError if the provider is not registered.
+
+        The returned object is wrapped in :class:`ObservabilityMiddleware` for
+        structured logging. When ``enable_guardrail=True`` an additional
+        :class:`InputGuardrailMiddleware` layer is added on the outside so the
+        prompt is screened *before* telemetry or the cache see it.
+
+        Args:
+            provider_name: Registered provider identifier (e.g. ``"openai"``).
+            enable_guardrail: Opt-in switch to wrap the adapter with the
+                input guardrail middleware. Defaults to ``False`` so existing
+                call sites are unaffected.
+            block_on_pii: If ``True``, prompts that contain masked PII are
+                refused via :class:`SecurityViolationError` instead of being
+                silently sanitized. Only meaningful when ``enable_guardrail``
+                is also set.
+            **kwargs: Forwarded to the provider adapter's constructor.
         """
         adapter_class = cls._adapters.get(provider_name.lower())
         if not adapter_class:
@@ -29,4 +52,14 @@ class LLMAdapterFactory:
         adapter_instance = adapter_class(**kwargs)
 
         from telemetry.tracer import ObservabilityMiddleware
-        return ObservabilityMiddleware(adapter=adapter_instance, provider=provider_name)
+        wrapped: BaseLLMAdapter = ObservabilityMiddleware(
+            adapter=adapter_instance, provider=provider_name
+        )
+
+        if enable_guardrail:
+            from security.guardrail import InputGuardrailMiddleware
+            wrapped = InputGuardrailMiddleware(
+                wrapped, block_on_pii=block_on_pii
+            )
+
+        return wrapped
