@@ -61,8 +61,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if redis_url:
         app_state.redis_pool = redis.from_url(redis_url, decode_responses=True)
 
-    # Initialize the LLM Router Manager
-    app_state.router_manager = RouterManager(primary_provider=os.getenv("PRIMARY_PROVIDER", "openai"), fallback_provider=os.getenv("FALLBACK_PROVIDER", "gemini"))
+    # Initialize the LLM Router Manager. Optionally wire a local provider
+    # (Ollama/vLLM/LM Studio) to absorb trivial, high-volume traffic and save
+    # cloud API spend. The local adapter is opt-in via ``LOCAL_PROVIDER_BASE_URL``.
+    local_base_url = os.getenv("LOCAL_PROVIDER_BASE_URL")
+    local_provider_name: str | None = None
+    local_kwargs: dict | None = None
+    if local_base_url:
+        local_provider_name = "local"
+        local_kwargs = {
+            "base_url": local_base_url,
+            "model": os.getenv("LOCAL_MODEL", "llama3.1"),
+        }
+        if local_api_key := os.getenv("LOCAL_PROVIDER_API_KEY"):
+            local_kwargs["api_key"] = local_api_key
+
+    app_state.router_manager = RouterManager(
+        primary_provider=os.getenv("PRIMARY_PROVIDER", "openai"),
+        fallback_provider=os.getenv("FALLBACK_PROVIDER", "gemini"),
+        local_provider=local_provider_name,
+        local_kwargs=local_kwargs,
+    )
 
     yield
 
