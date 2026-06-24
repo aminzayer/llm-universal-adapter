@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Type
 from pydantic import BaseModel, Field, ValidationError
 
 from adapter.base import BaseLLMAdapter
+from prompts import PromptRegistry
 from tools.es_discovery import ElasticsearchDiscoveryTool
 from utils.structured import StructuredGenerator
 
@@ -184,18 +185,29 @@ class SummaryAgent(BaseWorker):
     name = "summary"
     output_model = SummaryAgentOutput
 
-    def __init__(self, adapter: BaseLLMAdapter) -> None:
+    def __init__(
+        self,
+        adapter: BaseLLMAdapter,
+        *,
+        prompt_registry: Optional[PromptRegistry] = None,
+    ) -> None:
         self.adapter = adapter
         self.structured = StructuredGenerator(adapter)
+        self._registry: Optional[PromptRegistry] = prompt_registry
+
+    def _get_registry(self) -> PromptRegistry:
+        """
+        Return the configured registry, lazily constructing a no-DB registry
+        (backed by the module-level :data:`DEFAULT_PROMPTS`) on first use.
+        """
+        if self._registry is None:
+            self._registry = PromptRegistry(db_pool=None)
+        return self._registry
 
     async def run(self, task: SwarmTask, decision: ClassificationDecision) -> BaseModel:
         params = SummaryAgentInput(text=task.user_input)
-        prompt = (
-            "Summarize the following text. Return a concise 'summary' string and "
-            f"up to {params.max_points} bullet-style 'key_points' that capture "
-            "the most important facts.\n\n"
-            f"Text:\n{params.text}"
-        )
+        template = await self._get_registry().get_prompt("summary.system")
+        prompt = template.format(text=params.text, max_points=params.max_points)
         return await self.structured.generate(prompt, SummaryAgentOutput)
 
 
@@ -215,6 +227,8 @@ class ClassifierAgent:
         adapter: BaseLLMAdapter,
         candidate_intents: List[str],
         confidence_threshold: float = 0.5,
+        *,
+        prompt_registry: Optional[PromptRegistry] = None,
     ) -> None:
         if not candidate_intents:
             raise ValueError("ClassifierAgent requires at least one candidate intent.")
@@ -224,15 +238,21 @@ class ClassifierAgent:
         self.candidate_intents = list(candidate_intents)
         self.confidence_threshold = confidence_threshold
         self.structured = StructuredGenerator(adapter)
+        self._registry: Optional[PromptRegistry] = prompt_registry
+
+    def _get_registry(self) -> PromptRegistry:
+        """
+        Return the configured registry, lazily constructing a no-DB registry
+        (backed by the module-level :data:`DEFAULT_PROMPTS`) on first use.
+        """
+        if self._registry is None:
+            self._registry = PromptRegistry(db_pool=None)
+        return self._registry
 
     async def classify(self, task: SwarmTask) -> ClassificationDecision:
         intent_list = ", ".join(f"'{i}'" for i in self.candidate_intents)
-        prompt = (
-            "You are a routing classifier for a multi-agent system. "
-            "Classify the user's request into exactly one of the following intents: "
-            f"[{intent_list}].\n\n"
-            f"User request:\n{task.user_input}"
-        )
+        template = await self._get_registry().get_prompt("classifier.system")
+        prompt = template.format(intent_list=intent_list, user_input=task.user_input)
         decision = await self.structured.generate(prompt, ClassificationDecision)
 
         if decision.intent not in self.candidate_intents:

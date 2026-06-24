@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from config import settings
 from orchestration.router import RouterManager
+from prompts import PromptRegistry
 
 # -------------------------------------------------------------------------
 # Pydantic Models for OpenAI-compatible API Contract
@@ -35,6 +36,7 @@ class AppState:
     db_pool: Optional[asyncpg.Pool] = None
     redis_pool: Optional[redis.Redis] = None
     router_manager: Optional[RouterManager] = None
+    prompt_registry: Optional[PromptRegistry] = None
 
 
 app_state = AppState()
@@ -82,6 +84,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         local_provider=local_provider_name,
         local_kwargs=local_kwargs,
     )
+
+    # Initialize the PromptRegistry for dynamic, versioned prompts with A/B
+    # allocation. The registry gracefully degrades to module-level defaults
+    # when the database is unavailable.
+    app_state.prompt_registry = PromptRegistry(
+        db_pool=app_state.db_pool,
+        cache_size=int(os.getenv("PROMPT_CACHE_SIZE", "256")),
+        cache_ttl_seconds=float(os.getenv("PROMPT_CACHE_TTL", "10.0")),
+    )
+    await app_state.prompt_registry.initialize()
 
     yield
 
