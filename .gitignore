@@ -14,3 +14,10 @@ __pycache__
 __pycache__/
 *.py[cod]
 *$py.class
+/.agents/
+/.agents/*
+/.benchmarks/
+/.benchmarks/*
+
+# Distribution / packaging
+*.egg-info/
