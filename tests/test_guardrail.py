@@ -351,6 +351,7 @@ async def test_factory_with_guardrail_masks_pii() -> None:
     assert isinstance(adapter, InputGuardrailMiddleware)
 
     # The inner-most adapter still sees the sanitized prompt.
+    # pyrefly: ignore [missing-attribute]
     inner = adapter.adapter.adapter  # guardrail -> observability -> dummy
     out = await adapter.generate_response("ping alice@example.com")
     assert out == "dummy:ping [REDACTED_EMAIL]"

@@ -337,7 +337,22 @@ class SwarmOrchestrator:
                 )
 
         worker = self.get_worker(decision.intent)
-        output = await worker.run(task, decision)
+        try:
+            output = await worker.run(task, decision)
+        except Exception as exc:
+            from orchestration.hitl import ApprovalRequiredError, HITLStateManager
+            if isinstance(exc, ApprovalRequiredError):
+                adapter = self.classifier.adapter
+                redis_client = getattr(adapter, "redis_client", None)
+                if redis_client:
+                    manager = HITLStateManager(redis_client)
+                    state = await manager.get_state(exc.state_id)
+                    if state:
+                        state.task = task.model_dump()
+                        state.worker_name = worker.name
+                        await manager.save_state(state)
+            raise exc
+
         return SwarmResult(
             request_id=task.request_id,
             intent=decision.intent,

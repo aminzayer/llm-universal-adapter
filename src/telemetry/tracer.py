@@ -22,12 +22,36 @@ class ObservabilityMiddleware(BaseLLMAdapter):
         # Sync tools dictionary from the inner adapter
         self.tools = self.adapter.tools
 
-    def register_tool(self, name: str, func: Callable[..., Any], description: str) -> None:
+    def register_tool(self, name: str, func: Callable[..., Any], description: str, requires_approval: bool = False) -> None:
         """
         Delegates tool registration to the underlying adapter and syncs the tools dictionary.
         """
-        self.adapter.register_tool(name, func, description)
+        self.adapter.register_tool(name, func, description, requires_approval=requires_approval)
         self.tools = self.adapter.tools
+
+    def set_redis_client(self, redis_client: Any) -> None:
+        """
+        Propagates the Redis client to the underlying adapter.
+        """
+        super().set_redis_client(redis_client)
+        self.adapter.set_redis_client(redis_client)
+
+    async def resume_with_tools(self, state: Any) -> str:
+        """
+        Resumes suspended execution and logs telemetry for the resumption step.
+        """
+        start_time = time.perf_counter()
+        error: Optional[str] = None
+        response = ""
+        try:
+            response = await self.adapter.resume_with_tools(state)
+            return response
+        except Exception as e:
+            error = str(e)
+            raise
+        finally:
+            latency = time.perf_counter() - start_time
+            await self._log_telemetry("resume_with_tools", f"HITL Resume state_id={state.state_id}", response, latency, error)
 
     async def generate_response(self, prompt: str, **kwargs: Any) -> str:
         start_time = time.perf_counter()

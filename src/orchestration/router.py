@@ -91,17 +91,40 @@ class RouterManager(BaseLLMAdapter):
         if local_provider:
             self.local_adapter = LLMAdapterFactory.create_adapter(local_provider, **(local_kwargs or {}))
 
-    def register_tool(self, name: str, func: Callable[..., Any], description: str) -> None:
+    def register_tool(self, name: str, func: Callable[..., Any], description: str, requires_approval: bool = False) -> None:
         """
         Registers a tool on the router and explicitly propagates it to the
         primary, fallback, and local adapters so the router's tool list
         always matches the inner adapters.
         """
-        super().register_tool(name, func, description)
-        self.primary_adapter.register_tool(name, func, description)
-        self.fallback_adapter.register_tool(name, func, description)
+        super().register_tool(name, func, description, requires_approval=requires_approval)
+        self.primary_adapter.register_tool(name, func, description, requires_approval=requires_approval)
+        self.fallback_adapter.register_tool(name, func, description, requires_approval=requires_approval)
         if self.local_adapter is not None:
-            self.local_adapter.register_tool(name, func, description)
+            self.local_adapter.register_tool(name, func, description, requires_approval=requires_approval)
+
+    def set_redis_client(self, redis_client: Any) -> None:
+        """
+        Sets the active Redis client on this router and propagates it to all inner adapters.
+        """
+        super().set_redis_client(redis_client)
+        self.primary_adapter.set_redis_client(redis_client)
+        self.fallback_adapter.set_redis_client(redis_client)
+        if self.local_adapter is not None:
+            self.local_adapter.set_redis_client(redis_client)
+
+    async def resume_with_tools(self, state: Any) -> str:
+        """
+        Resumes suspended execution on the appropriate underlying adapter.
+        """
+        if state.provider == self.primary_name:
+            return await self.primary_adapter.resume_with_tools(state)
+        elif state.provider == self.fallback_name:
+            return await self.fallback_adapter.resume_with_tools(state)
+        elif self.local_adapter is not None and state.provider == self.local_name:
+            return await self.local_adapter.resume_with_tools(state)
+        else:
+            return await self.primary_adapter.resume_with_tools(state)
 
     def _is_trivial(self, prompt: str) -> bool:
         """

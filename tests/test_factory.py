@@ -1,13 +1,16 @@
 import pytest
 from typing import Any, AsyncGenerator
 
+# pyrefly: ignore [missing-import]
 from src.adapter.base import BaseLLMAdapter
+# pyrefly: ignore [missing-import]
 from src.adapter.factory import LLMAdapterFactory
 
 
 class DummyAdapter(BaseLLMAdapter):
     """A dummy adapter implementation to test the factory independently."""
 
+    # pyrefly: ignore [bad-function-definition]
     def __init__(self, api_key: str = None) -> None:
         self.api_key = api_key
         super().__init__()

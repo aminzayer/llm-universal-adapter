@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
+# pyrefly: ignore [missing-import]
 from src.adapter.gemini_adapter import GeminiAdapter
 
 

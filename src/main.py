@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from config import settings
 from orchestration.router import RouterManager
 from prompts import PromptRegistry
+from orchestration.hitl import ApprovalRequiredError
 
 # -------------------------------------------------------------------------
 # Pydantic Models for OpenAI-compatible API Contract
@@ -84,6 +85,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         local_provider=local_provider_name,
         local_kwargs=local_kwargs,
     )
+    if app_state.redis_pool:
+        app_state.router_manager.set_redis_client(app_state.redis_pool)
 
     # Initialize the PromptRegistry for dynamic, versioned prompts with A/B
     # allocation. The registry gracefully degrades to module-level defaults
@@ -128,6 +131,87 @@ async def health_check() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+
+
+class ApprovalRequest(BaseModel):
+    state_id: str
+    action: str = Field(..., description="Action to perform: 'approve' or 'abort'")
+
+
+@app.exception_handler(ApprovalRequiredError)
+async def approval_required_exception_handler(request: Any, exc: ApprovalRequiredError) -> JSONResponse:
+    """
+    Exception handler to catch ApprovalRequiredError and yield a 202 status code to the client.
+    """
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "requires_approval",
+            "state_id": exc.state_id,
+            "tool_name": exc.tool_name,
+            "tool_args": exc.tool_args,
+            "message": str(exc)
+        }
+    )
+
+
+@app.post("/v1/approval")
+async def handle_approval(request: ApprovalRequest) -> Any:
+    """
+    Manually resume or abort a suspended execution state.
+    """
+    if not app_state.redis_pool:
+        raise HTTPException(status_code=500, detail="Redis connection pool not initialized")
+    if not app_state.router_manager:
+        raise HTTPException(status_code=500, detail="RouterManager not initialized")
+
+    from orchestration.hitl import HITLStateManager
+    manager = HITLStateManager(app_state.redis_pool)
+    state = await manager.get_state(request.state_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Suspended state not found")
+
+    if state.status != "pending":
+        raise HTTPException(status_code=400, detail=f"State is not in pending status (current: {state.status})")
+
+    if request.action == "abort":
+        await manager.update_status(request.state_id, "aborted")
+        return {"status": "aborted", "message": "Tool execution was aborted."}
+    elif request.action == "approve":
+        await manager.update_status(request.state_id, "approved")
+        try:
+            # Resume execution
+            response_content = await app_state.router_manager.resume_with_tools(state)
+            # Delete state after completion
+            await manager.delete_state(request.state_id)
+
+            return JSONResponse(content={
+                "id": f"chatcmpl-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": state.model,
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": response_content,
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                }
+            })
+        except Exception as e:
+            if isinstance(e, ApprovalRequiredError):
+                raise
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Must be 'approve' or 'abort'")
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest) -> Any:
     """
@@ -148,7 +232,11 @@ async def chat_completions(request: ChatCompletionRequest) -> Any:
             return StreamingResponse(_stream_generator(request.model, prompt_str, messages, temperature), media_type="text/event-stream")
         else:
             # Synchronous response generation
-            response_content = await app_state.router_manager.generate_response(prompt=prompt_str, messages=messages, model=request.model, temperature=temperature)
+            # If the router manager has tools registered, call generate_with_tools to execute them
+            if app_state.router_manager.tools:
+                response_content = await app_state.router_manager.generate_with_tools(prompt=prompt_str)
+            else:
+                response_content = await app_state.router_manager.generate_response(prompt=prompt_str, messages=messages, model=request.model, temperature=temperature)
 
             # Construct OpenAI-compatible synchronous response
             return JSONResponse(content={

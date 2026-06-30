@@ -307,10 +307,19 @@ class InputGuardrailMiddleware(BaseLLMAdapter):
         # Last report, exposed for telemetry / debugging.
         self.last_report: Optional[GuardrailReport] = None
 
-    def register_tool(self, name: str, func: Callable[..., Any], description: str) -> None:
+    def register_tool(self, name: str, func: Callable[..., Any], description: str, requires_approval: bool = False) -> None:
         """Delegate tool registration to the inner adapter."""
-        self.adapter.register_tool(name, func, description)
+        self.adapter.register_tool(name, func, description, requires_approval=requires_approval)
         self.tools = self.adapter.tools
+
+    def set_redis_client(self, redis_client: Any) -> None:
+        """Propagates the Redis client to the underlying adapter."""
+        super().set_redis_client(redis_client)
+        self.adapter.set_redis_client(redis_client)
+
+    async def resume_with_tools(self, state: Any) -> str:
+        """Resumes suspended tool execution on the underlying adapter."""
+        return await self.adapter.resume_with_tools(state)
 
     def _screen(self, prompt: str) -> Tuple[str, GuardrailReport]:
         """Run PII masking + injection detection; return (sanitized_prompt, report)."""

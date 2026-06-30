@@ -5,3 +5,9 @@ module = [
     "tenacity.*"
 ]
 ignore_missing_imports = true
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]

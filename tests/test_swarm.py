@@ -85,6 +85,7 @@ class StubWorker(BaseWorker):
     name = "stub"
     output_model = SearchAgentOutput
 
+    # pyrefly: ignore [bad-function-definition]
     def __init__(self, name: str = "stub", output: BaseModel = None) -> None:
         self.name = name
         self.output = output
@@ -170,6 +171,7 @@ async def test_search_agent_uses_tool_and_returns_typed_output(search_task: Swar
         ]
     }
     fake_es = FakeESTool(es_payload)
+    # pyrefly: ignore [bad-argument-type]
     agent = SearchAgent(fake_es, index_name="docs", top_k=4, max_count_per_domain=1)
 
     result = await agent.run(
@@ -190,6 +192,7 @@ async def test_search_agent_uses_tool_and_returns_typed_output(search_task: Swar
 @pytest.mark.asyncio
 async def test_search_agent_handles_error_payload() -> None:
     fake_es = FakeESTool({"error": "Search failed: backend down"})
+    # pyrefly: ignore [bad-argument-type]
     agent = SearchAgent(fake_es)
 
     result = await agent.run(
@@ -197,7 +200,9 @@ async def test_search_agent_handles_error_payload() -> None:
         ClassificationDecision(intent="search", confidence=0.5),
     )
 
+    # pyrefly: ignore [missing-attribute]
     assert result.results == []
+    # pyrefly: ignore [missing-attribute]
     assert "error" in result.raw_response
 
 
@@ -243,6 +248,7 @@ def _build_orchestrator_with_stubs(decision: ClassificationDecision, worker: Bas
 async def test_dispatch_routes_to_search_worker(search_task: SwarmTask) -> None:
     es_payload = {"results": [{"title": "hit", "url": "https://x", "content": "c"}]}
     fake_es = FakeESTool(es_payload)
+    # pyrefly: ignore [bad-argument-type]
     search_worker = SearchAgent(fake_es)
     decision = ClassificationDecision(intent="search", confidence=0.95, reasoning="r")
     orch = _build_orchestrator_with_stubs(decision, search_worker)

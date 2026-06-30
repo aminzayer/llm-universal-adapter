@@ -11,12 +11,29 @@ class BaseLLMAdapter(ABC):
     def __init__(self) -> None:
         # Correctly type the nested dictionary structure
         self.tools: Dict[str, Dict[str, Any]] = {}
+        self.redis_client: Any = None
 
-    def register_tool(self, name: str, func: Callable[..., Any], description: str) -> None:
+    def register_tool(self, name: str, func: Callable[..., Any], description: str, requires_approval: bool = False) -> None:
         """
         Registers a local Python function to be exposed to the LLM via MCP.
         """
-        self.tools[name] = {"function": func, "description": description}
+        self.tools[name] = {
+            "function": func,
+            "description": description,
+            "requires_approval": requires_approval
+        }
+
+    def set_redis_client(self, redis_client: Any) -> None:
+        """
+        Sets the active Redis client on this adapter.
+        """
+        self.redis_client = redis_client
+
+    async def resume_with_tools(self, state: Any) -> str:
+        """
+        Resumes a suspended tool execution using the saved state.
+        """
+        raise NotImplementedError("This adapter does not support tool execution resumption.")
 
     @abstractmethod
     async def generate_with_tools(self, prompt: str) -> str:
@@ -46,3 +63,4 @@ class BaseLLMAdapter(ABC):
         Calculates the number of tokens for the given text.
         """
         pass
+

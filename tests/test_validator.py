@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# pyrefly: ignore [missing-import]
 from src.validator.llm_judge import StrictValidator
 
 

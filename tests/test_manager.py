@@ -2,7 +2,9 @@ from typing import Any, AsyncGenerator
 
 import pytest
 
+# pyrefly: ignore [missing-import]
 from src.adapter.base import BaseLLMAdapter
+# pyrefly: ignore [missing-import]
 from src.memory.manager import ConversationManager
 
 
