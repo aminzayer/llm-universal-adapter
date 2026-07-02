@@ -29,7 +29,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture Overview
 
-LLM Universal Adapter is a resilient async backend service that standardizes interactions with multiple LLM providers (OpenAI, Google Gemini) behind a single interface, with retry/failover, structured output enforcement, and observability.
+LLM Universal Adapter is a resilient async backend service that standardizes interactions with multiple LLM providers (OpenAI, Google Gemini) behind a single interface, with retry/failover, structured output enforcement, human-in-the-loop approvals, and observability.
 
 ### Request Flow & Key Wrapping Behavior
 
@@ -41,12 +41,19 @@ Pass `enable_guardrail=True` (and optionally `block_on_pii=True`) to additionall
 
 The router can also take an optional `local_provider` (e.g. `"local"`) plus `local_kwargs` (typically `base_url` and `model`). When set, an `_is_trivial(prompt)` heuristic — which flattens JSON-wrapped messages arrays the way `main.py` serialises them, then matches against a small list of cheap keywords (`classify`, `categorize`, `label`, `sentiment`, `is this`, `yes/no`, …) and rejects anything with reasoning cues (`reason`, `explain`, `plan`, `analyze`, `code`, `implement`, `design`, …) or longer than 800 characters — decides whether to send the request to the local adapter. Trivial prompts go local first; any local failure falls through to the existing primary → fallback chain with a warning, so a flaky local server never breaks user requests. `generate_with_tools` and `get_token_count` always stay on the cloud chain — local function-calling is inconsistent and local token counting is already free.
 
+### Human-in-the-Loop (HITL) Tool Approval
+
+The system supports suspending execution when a tool registered with `requires_approval=True` is invoked by the model. 
+1. **Suspension**: When the model calls an approval-required tool, the adapter (`OpenAIAdapter` or `GeminiAdapter`) captures the execution state, saves it to Redis (using `HITLState` and `HITLStateManager` from `src/orchestration/hitl.py`), and raises `ApprovalRequiredError`.
+2. **Orchestration**: `SwarmOrchestrator` catches `ApprovalRequiredError` during worker execution, enriches the Redis state with swarm task details, and re-raises it.
+3. **Resumption**: A client calls `POST /v1/approval` with `approve` or `abort`. If approved, the state is retrieved, `resume_with_tools(state)` is invoked on the adapter, the tool is executed, any subsequent tool calls are completed, and a follow-up completion call returns the final answer. Telemetry tracks both suspensions and resumptions.
+
 ### Adapter Layer (`src/adapter/`)
 
-- `base.py` — `BaseLLMAdapter` ABC. Defines the interface: `generate_response`, `agenerate_stream`, `generate_with_tools`, `get_token_count`, and a `register_tool` mechanism that stores callables in `self.tools` for MCP/function calling.
-- `openai_adapter.py` — uses `openai.AsyncClient`. Token counting is local via `tiktoken` (no API call). Retries on `RateLimitError`, `APIConnectionError`, `InternalServerError` (5 attempts, exponential backoff). Builds OpenAI tool schemas from Python function signatures via `inspect.signature`; supports sync and async tool functions.
-- `gemini_adapter.py` — uses the new `google-genai` SDK (`genai.Client`, not the deprecated `google.generativeai`). Token counting hits the API via `client.aio.models.count_tokens`. Retries only on `APIError`. Passes tools as a list of callables directly to the SDK. Stores `model_name` (not `model`) — `ObservabilityMiddleware` checks both attributes.
-- `local_adapter.py` — `LocalModelAdapter` speaks OpenAI-compatible HTTP (`POST /v1/chat/completions`) to vLLM, Ollama (via its OpenAI shim), or LM Studio. Optimised for hardware-accelerated local environments such as Apple Silicon (Metal) and AWS Graviton. Uses `aiohttp` with a lazy, reused `ClientSession` and connection pooling; retries 5× on 5xx and `ClientConnectionError` via `tenacity` (4xx surfaces immediately as caller bugs). Streaming is SSE-line parsed. Token counting is a local character heuristic (`len // 4`, min 1 for non-empty) — the whole point is to avoid a remote API. `generate_with_tools` raises `NotImplementedError` because local function-calling is inconsistent across models; the router never asks it to.
+- `base.py` — `BaseLLMAdapter` ABC. Defines the interface: `generate_response`, `agenerate_stream`, `generate_with_tools`, `get_token_count`, `register_tool` (which supports a `requires_approval` boolean), `set_redis_client`, and `resume_with_tools`.
+- `openai_adapter.py` — uses `openai.AsyncClient`. Token counting is local via `tiktoken`. Retries on `RateLimitError`, `APIConnectionError`, `InternalServerError`. Suspends tool calls if marked for approval, raising `ApprovalRequiredError`. Implements `resume_with_tools` by running the approved tool, executing remaining tools in the batch, and returning the final completion.
+- `gemini_adapter.py` — uses the new `google-genai` SDK (`genai.Client`). Token counting hits the API. Retries only on `APIError`. Implements tool suspension and `resume_with_tools` using Gemini's native tool response structures.
+- `local_adapter.py` — `LocalModelAdapter` speaks OpenAI-compatible HTTP (`POST /v1/chat/completions`) to vLLM, Ollama, or LM Studio. Optimized for hardware-accelerated local environments. Streaming is SSE-line parsed. Token counting is a local character heuristic. `generate_with_tools` raises `NotImplementedError`.
 - `factory.py` — registry pattern; registrations happen at import time in `src/adapter/__init__.py`.
 
 ### Cross-Cutting Components
@@ -54,11 +61,11 @@ The router can also take an optional `local_provider` (e.g. `"local"`) plus `loc
 - **Validator (`src/validator/llm_judge.py`)**: `StrictValidator` uses an LLM-as-judge to score content. Decodes markdown-wrapped JSON (strips `` ``` `` / `` ```json ``) and retries on `JSONDecodeError`/`ValueError` via `tenacity` (3 attempts, exponential backoff). Returns a dict with required keys `score`, `reasoning`, `is_valid`.
 - **Memory (`src/memory/manager.py`)**: `ConversationManager` uses a sliding-window truncation strategy. System prompt at index 0 is **always preserved**; oldest non-system messages are popped when total tokens exceed `max_context_tokens * threshold` (default 80%). Token counts come from the adapter, so the choice of adapter affects how the window is measured.
 - **Structured Output (`src/utils/structured.py`)**: `StructuredGenerator` uses **native** provider features where available — `response_format={"type": "json_schema", ...}` for OpenAI, `response_mime_type="application/json"` + `response_schema` for Gemini. Falls back to schema-in-prompt with self-correction (re-prompts with the validation error appended). Retries 3× on `JSONDecodeError`/`ValidationError`. Provider is inferred from `self.adapter.provider` or by class name sniffing on `self.adapter.adapter`.
-- **Telemetry (`src/telemetry/tracer.py`)**: `ObservabilityMiddleware`. Logs one JSON line per invocation. The `cache_status` heuristic depends on `getattr(self.adapter, "semantic_cache", None)` — if a future adapter exposes a `semantic_cache` attribute, latency < 0.05s is reported as `HIT`, otherwise `MISS`; with no attribute present it stays `DISABLED`.
+- **Telemetry (`src/telemetry/tracer.py`)**: `ObservabilityMiddleware`. Logs one JSON line per invocation. Telemetry is also captured and logged during the `resume_with_tools` step. The `cache_status` heuristic depends on `getattr(self.adapter, "semantic_cache", None)` — if a future adapter exposes a `semantic_cache` attribute, latency < 0.05s is reported as `HIT`, otherwise `MISS`; with no attribute present it stays `DISABLED`.
 - **Semantic Cache (`src/cache/semantic.py`)**: `SemanticCache` class (two-tier strategy: Layer 1 Redis for exact matches, Layer 2 PostgreSQL `pgvector` for semantic cosine similarity) plus a `with_semantic_cache` decorator intended to wrap adapter `generate_response` methods. **Not yet applied to any adapter** — the decorator checks `getattr(self, "semantic_cache", None)` at call time, so wiring it up is just assigning a `SemanticCache` instance to the adapter and decorating the method.
 - **Scraper (`src/scraper/async_crawler.py`)**: `AgenticScraper` does BFS via `aiohttp` + `BeautifulSoup` and uses an LLM (via the factory) to evaluate page relevance. Fetch timeout is 10s per page.
 - **Tools (`src/tools/es_discovery.py`)**: `ElasticsearchDiscoveryTool` is designed to be registered via `adapter.register_tool(...)`. Enforces source diversity (max per-domain cap) over a 5×-oversampled result set.
-- **Swarm (`src/orchestration/swarm.py`)**: `SwarmOrchestrator` does lightweight intent routing. `ClassifierAgent` returns a `ClassificationDecision` (pydantic) via `StructuredGenerator`; the orchestrator looks up the named worker in its registry and dispatches a `SwarmTask` to it. Built-in workers: `SearchAgent` (wraps `ElasticsearchDiscoveryTool`), `SummaryAgent` (LLM via `StructuredGenerator`). All inter-agent messages are pydantic `BaseModel` subclasses — never raw dicts. `UnknownIntentError` is raised when a classifier intent has no registered worker. Custom workers implement `BaseWorker.run(task, decision) -> BaseModel`.
+- **Swarm (`src/orchestration/swarm.py`)**: `SwarmOrchestrator` does lightweight intent routing. `ClassifierAgent` returns a `ClassificationDecision` (pydantic) via `StructuredGenerator`; the orchestrator looks up the named worker in its registry and dispatches a `SwarmTask` to it. Enriches `HITLState` with task metadata and worker names if `ApprovalRequiredError` is caught during worker dispatch. Built-in workers: `SearchAgent` (wraps `ElasticsearchDiscoveryTool`), `SummaryAgent` (LLM via `StructuredGenerator`). All inter-agent messages are pydantic `BaseModel` subclasses — never raw dicts. `UnknownIntentError` is raised when a classifier intent has no registered worker. Custom workers implement `BaseWorker.run(task, decision) -> BaseModel`.
 - **Security (`src/security/guardrail.py`)**: `InputGuardrailMiddleware` screens every prompt before it reaches the cache or the adapter. `PIIMasker` does regex-based detection and masking for emails, phones, credit-card-like digit runs, SSN-like numbers, IPv4, OpenAI keys, GitHub PATs, AWS access keys, bearer tokens, and `api_key=` / `token=` assignments (in-place replacement with `[REDACTED_*]` placeholders, by default non-blocking). `PromptInjectionDetector` flags instruction-override, role-hijack, system-prompt extraction, jailbreak prefixes, and delimiter-injection shapes. Detection raises `SecurityViolationError(matched_pattern=...)` and halts execution. Opt-in via `LLMAdapterFactory.create_adapter(..., enable_guardrail=True)`.
 
 ### API Surface (`src/main.py`)
@@ -66,7 +73,9 @@ The router can also take an optional `local_provider` (e.g. `"local"`) plus `loc
 FastAPI app exposing an OpenAI-compatible contract. `AppState` (a plain module-level singleton) holds the asyncpg pool, redis client, and the `RouterManager`. The `lifespan` async context manager wires all three up at startup if their env vars are set, and tears them down on shutdown.
 
 - `GET /v1/health` — basic liveness, returns `{"status": "ok"}`.
-- `POST /v1/chat/completions` — OpenAI-shaped body (`model`, `messages`, `temperature`, `stream`, `max_tokens`). `stream=True` returns `text/event-stream` SSE; otherwise a single JSON response. Delegates to `app_state.router_manager`. The `usage` block is always zeroed out — token accounting is not surfaced here.
+- `POST /v1/chat/completions` — OpenAI-shaped body (`model`, `messages`, `temperature`, `stream`, `max_tokens`). If tools are registered, delegates to `generate_with_tools` automatically. Yields `HTTP 202` (via `ApprovalRequiredError` exception handler) if any tools require human approval.
+- `POST /v1/approval` — Resumes or aborts a suspended execution state. Accepts a JSON body containing `state_id` and `action` (`"approve"` or `"abort"`). If approved, executes the tool and resumes the agent execution to return the final chat completion response.
+
 
 ### Configuration (`src/config.py`)
 
@@ -87,15 +96,17 @@ Pydantic Settings loads from `.env`. Only `openai_api_key`, `gemini_api_key`, an
 - **Cache/Broker**: Redis (`redis>=8.0.0`)
 - **Search**: Elasticsearch
 - **Deployment**: Docker Compose (api + db + redis)
-- **CI**: GitHub Actions in `.github/workflows/ci.yml` — runs `ruff`, `mypy`, `pytest` on push/PR to `main` (Python 3.11)
+- **CI**: GitHub Actions in `.github/workflows/ci.yml` — triggers on push/PR to `main`, runs `ruff check .`, `mypy src/`, and `pytest tests/ --maxfail=1 --disable-warnings` on Python 3.11. Mirrors the local commands above, so a clean local run is a clean CI run.
 
-## graphify
+## graphify (mandatory)
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+This project has a knowledge graph at `graphify-out/` (god nodes, community structure, cross-file relationships). The same rules are also enforced by an `always_on` agent rule at `.agents/rules/graphify.md`.
 
-Rules:
-
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- For codebase questions, first run `graphify query "<question>"` when `graphify-out/graph.json` exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than `GRAPH_REPORT.md` or raw grep output.
+- If `graphify-out/wiki/index.md` exists, use it for broad navigation instead of raw source browsing.
+- Read `graphify-out/GRAPH_REPORT.md` only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## Deeper references
+
+- `antigravity.md` — long-form architecture reference (full `.env` variable list, system diagrams, design rationale). Reach for it when `CLAUDE.md` and `graphify` don't surface enough. `README.md` mirrors most of it for end users.

@@ -37,6 +37,7 @@
 - Stores prompt templates in a **versioned, A/B-sampled PostgreSQL registry** with LRU caching
 - Provides a **two-tier semantic cache** (Redis exact-match → PostgreSQL `pgvector` cosine similarity)
 - Orchestrates multi-agent workloads through a **SwarmOrchestrator** that classifies intent and routes to typed worker agents
+- Manages suspended tool executions with a **Human-in-the-Loop (HITL) approval manager** backed by Redis
 
 **Language:** Python 3.11+
 **Framework:** FastAPI (served via `uvicorn`, not `uwsgi`)
@@ -59,6 +60,7 @@ llm-universal-adapter/
 │   │   ├── gemini_adapter.py       # GeminiAdapter (gemini-2.5-flash, google-genai SDK)
 │   │   └── local_adapter.py        # LocalModelAdapter (OpenAI-compat HTTP, vLLM/Ollama)
 │   ├── orchestration/
+│   │   ├── hitl.py                 # HITLState, HITLStateManager (Redis-backed tool approval)
 │   │   ├── router.py               # RouterManager (3-tier failover, trivial heuristic)
 │   │   └── swarm.py                # SwarmOrchestrator, ClassifierAgent, workers
 │   ├── prompts/
@@ -89,6 +91,7 @@ llm-universal-adapter/
 │       ├── __init__.py
 │       └── es_discovery.py         # ElasticsearchDiscoveryTool (diverse search)
 ├── tests/                          # pytest test suite
+│   └── test_hitl.py                # Unit and integration tests for HITL
 ├── graphify-out/                   # Knowledge graph (graph.json, GRAPH_REPORT.md, wiki/)
 ├── .github/workflows/ci.yml        # CI: ruff + mypy + pytest on Python 3.11
 ├── docker-compose.yml              # api + db (pgvector) + redis
@@ -164,9 +167,11 @@ Abstract base class defining the **universal interface** all providers must impl
 | `agenerate_stream` | `async (prompt, **kwargs) -> AsyncGenerator[str, None]` | Streaming generation |
 | `generate_with_tools` | `async (prompt) -> str` | MCP/function-calling generation |
 | `get_token_count` | `async (text) -> int` | Token counting |
-| `register_tool` | `(name, func, description)` | Register callable as an LLM tool |
+| `register_tool` | `(name, func, description, requires_approval=False)` | Register callable as an LLM tool |
+| `set_redis_client` | `(redis_client)` | Set active Redis client |
+| `resume_with_tools` | `async (state) -> str` | Resume suspended execution with state |
 
-Tools are stored as `Dict[str, Dict[str, Any]]` on `self.tools`. All middleware layers keep `self.tools` in sync with inner adapters.
+Tools are stored as `Dict[str, Dict[str, Any]]` on `self.tools`, including a `requires_approval` boolean. All middleware layers keep `self.tools` in sync with inner adapters and propagate the Redis client and resumption calls.
 
 ---
 
@@ -200,6 +205,7 @@ InputGuardrailMiddleware   [opt-in]
 - Retries on `RateLimitError`, `APIConnectionError`, `InternalServerError` — 5 attempts, exponential backoff via `tenacity`
 - Builds tool schemas from Python function signatures using `inspect.signature`; handles both sync and async tool callables
 - Two-turn function-calling protocol: first call gets tool invocations, results appended as `role: tool`, second call returns final response
+- **HITL Integration**: Checks if tool calls require approval. Saves suspended state to Redis and raises `ApprovalRequiredError` if so. Implements `resume_with_tools` to execute approved tools and any remaining queued calls before fetching the final response.
 
 ---
 
@@ -210,6 +216,7 @@ InputGuardrailMiddleware   [opt-in]
 - Token counting hits the API via `client.aio.models.count_tokens`
 - Retries only on `APIError`; temperature mapped to `types.GenerateContentConfig`
 - Passes tools as a list of raw Python callables to the SDK (SDK auto-generates schema)
+- **HITL Integration**: Supports tool suspension and resumption (`resume_with_tools`) using native Gemini tool response types, interacting with Redis via `HITLStateManager`.
 
 ---
 
@@ -248,7 +255,17 @@ A `BaseLLMAdapter` wrapping 2-3 inner adapters (primary, fallback, optional loca
 
 **Streaming failover:** Only activates if primary fails before yielding any chunk. Mid-stream failures are re-raised since seamless mid-stream failover is impossible.
 
-Tool registration on the router propagates to **all three** inner adapters.
+Tool registration, Redis client configuration (`set_redis_client`), and resumption requests (`resume_with_tools`) on the router propagate to all inner adapters.
+
+---
+
+#### `hitl.py` — `HITLStateManager`
+
+Manages suspension, storage, and resumption of agent execution state in Redis.
+
+- **`HITLState`**: Pydantic model representing the serialized execution state of a suspended tool execution. Contains `state_id`, `request_id`, `provider`, `model`, `temperature`, `tool_name`, `tool_args`, `tool_call_id`, `messages` (history up to tool call), `pending_tool_calls` (remaining calls), `task` (swarm metadata), and `worker_name`.
+- **`ApprovalRequiredError`**: Exception raised when a tool requires approval. Includes details of the suspended state.
+- **`HITLStateManager`**: Interacts with Redis to perform `save_state`, `get_state`, `update_status`, and `delete_state`.
 
 ---
 
@@ -281,6 +298,7 @@ SummaryAgentOutput      ->  summary, key_points (List[str])
 1. `SwarmOrchestrator.dispatch(task)` calls `ClassifierAgent.classify(task)`
 2. If confidence < threshold: use `default_intent` or first registered worker
 3. Look up worker by intent name -> call `worker.run(task, decision)`
+   - If `ApprovalRequiredError` is caught during worker execution, the orchestrator retrieves the saved state from Redis, enriches it with the `task` and `worker_name`, saves it back, and re-raises the error.
 4. Return typed `SwarmResult`
 
 Custom workers implement `BaseWorker.run(task, decision) -> BaseModel` and register via `orchestrator.register_worker(worker)`.
@@ -539,7 +557,8 @@ class AppState:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/v1/health` | Liveness check -> `{"status": "ok"}` |
-| `POST` | `/v1/chat/completions` | OpenAI-compatible chat completions |
+| `POST` | `/v1/chat/completions` | OpenAI-compatible chat completions. Returns `HTTP 202` (status: `requires_approval`) if an approval-required tool is hit. |
+| `POST` | `/v1/approval` | Resumes or aborts a suspended execution state. Accepts JSON with `state_id` and `action` (`"approve"` or `"abort"`). |
 
 **Request body (`ChatCompletionRequest`):**
 ```json
@@ -558,6 +577,8 @@ class AppState:
 
 ## 5. Request Pipeline
 
+### Standard Request Pipeline
+
 ```
 POST /v1/chat/completions
          |
@@ -568,32 +589,47 @@ POST /v1/chat/completions
    Serialize messages -> JSON string (prompt_str = json.dumps(messages))
          |
          v
-   RouterManager.generate_response(prompt_str)
-   |-- _is_trivial(prompt)?
-   |   |-- YES: local_adapter.generate_response()   <- if configured
-   |   |         |-- SUCCESS -> return
-   |   |         |-- FAIL -> log warning -> fall through
-   |   |-- NO:  skip local
+   Has tools registered?
+   |-- NO: RouterManager.generate_response(prompt_str)
+   |       |-- _is_trivial(prompt)?
+   |       |   |-- YES: local_adapter.generate_response() -> SUCCESS -> return
+   |       |   |-- NO: skip local
+   |       |-- primary_adapter.generate_response()
+   |       |     |-- InputGuardrailMiddleware._screen()
+   |       |     |-- ObservabilityMiddleware
+   |       |     |-- OpenAIAdapter.generate_response() -> tenacity retry
+   |       |     |-- SUCCESS -> return
+   |       |-- fallback_adapter.generate_response() -> SUCCESS -> return
    |
-   |-- primary_adapter.generate_response()
-   |     |-- InputGuardrailMiddleware._screen()
-   |     |   |-- PromptInjectionDetector.evaluate()   -> raise SecurityViolationError on hit
-   |     |   |-- PIIMasker.scan()                     -> mask PII in-place
-   |     |-- ObservabilityMiddleware (wraps timing, logs JSON)
-   |     |     |-- OpenAIAdapter.generate_response()  -> tenacity retry on transient errors
-   |     |-- SUCCESS -> return
-   |     |-- FAIL -> log warning
-   |
-   |-- fallback_adapter.generate_response()
-         |-- (same middleware stack, GeminiAdapter underneath)
-         |-- SUCCESS -> return
-         |-- FAIL -> raise exception
+   |-- YES: RouterManager.generate_with_tools(prompt_str)
+           |-- Checks if any tool requires approval
+           |-- Executing tools...
+           |-- [Tool requires approval]
+           |     |-- Save HITLState to Redis
+           |     |-- Raise ApprovalRequiredError
+           |
+           v
+Exception Handler (ApprovalRequiredError) -> Return HTTP 202 (status: requires_approval, state_id, tool_name)
+
+Standard Success Flow -> Format OpenAI-compatible JSON response -> Return HTTP 200
+```
+
+### Resumption Pipeline
+
+```
+POST /v1/approval (state_id, action="approve")
          |
          v
-   Format OpenAI-compatible JSON response
+   HITLStateManager.get_state(state_id)
          |
          v
-   Return HTTP 200
+   RouterManager.resume_with_tools(state)
+   |-- Executes approved tool -> Appends result to message history
+   |-- Executes remaining tools in batch (suspends again if another requires approval)
+   |-- Sends follow-up LLM completion request with complete history
+         |
+         v
+   Delete state in Redis -> Return HTTP 200 (ChatCompletionResponse)
 ```
 
 ---
@@ -796,6 +832,7 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000
 
 # Run tests
 pytest tests/
+pytest tests/test_hitl.py
 pytest tests/test_filename.py
 pytest tests/test_filename.py::test_function
 
@@ -840,6 +877,12 @@ Key test patterns:
 ### Adapter registration at import time
 Importing `from adapter import ...` triggers `__init__.py`, which registers all three providers.
 Unit tests that mock adapters must ensure the factory is populated before `create_adapter` is called.
+
+### Redis Required for HITL
+If any tools are registered with `requires_approval=True`, a valid Redis client must be set on the adapter via `set_redis_client`. If not, a `RuntimeError` will be raised at runtime when the tool is called.
+
+### Mid-batch tool suspension
+If multiple tools are called by the LLM in a single turn, and the first one requires approval, the entire batch is suspended. Subsequent tool calls are stored in the state's `pending_tool_calls` and executed during the resumption step.
 
 ### SemanticCache is not wired
 The `SemanticCache` class and `with_semantic_cache` decorator exist but are **not yet applied to any adapter**.
