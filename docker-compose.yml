@@ -1,18 +1,62 @@
 version: '3.8'
 
 services:
+  # ---------------------------------------------------------------------------
+  # API Service — FastAPI served via Uvicorn (ASGI, required for WebSocket support)
+  # ---------------------------------------------------------------------------
   api:
     build: .
-    command: uwsgi --http :8000 --module src.main:app --processes 4 --threads 2
+    # Use Uvicorn instead of uWSGI to support WebSocket connections and ASGI.
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers 4
     ports:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://user:pass@db:5432/rag_db
       - REDIS_URL=redis://redis:6379/0
+      - PRIMARY_PROVIDER=${PRIMARY_PROVIDER:-openai}
+      - FALLBACK_PROVIDER=${FALLBACK_PROVIDER:-gemini}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - LOCAL_PROVIDER_BASE_URL=${LOCAL_PROVIDER_BASE_URL:-}
+      - LOCAL_MODEL=${LOCAL_MODEL:-llama3.1}
+      - PROMPT_CACHE_SIZE=${PROMPT_CACHE_SIZE:-256}
+      - PROMPT_CACHE_TTL=${PROMPT_CACHE_TTL:-10.0}
     depends_on:
       - db
       - redis
+    restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # AgentWorker Service — consumes tasks from Redis and executes them
+  #
+  # Scale horizontally by increasing the --scale flag:
+  #   docker-compose up --scale worker=3
+  # Each worker instance competes on BRPOP task:queue; Redis guarantees that
+  # only one worker receives each task (at-most-once delivery).
+  # ---------------------------------------------------------------------------
+  worker:
+    build: .
+    command: python -m src.worker.agent_worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://user:pass@db:5432/rag_db
+      - PRIMARY_PROVIDER=${PRIMARY_PROVIDER:-openai}
+      - FALLBACK_PROVIDER=${FALLBACK_PROVIDER:-gemini}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://localhost:9200}
+      # Number of seconds BRPOP blocks before looping (controls shutdown latency)
+      - WORKER_POLL_TIMEOUT=5
+      # Maximum number of tasks executed concurrently within a single worker process
+      - WORKER_MAX_CONCURRENT_TASKS=10
+    depends_on:
+      - redis
+      - db
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL with pgvector — used by PromptRegistry and memory modules
+  # ---------------------------------------------------------------------------
   db:
     image: ankane/pgvector:latest
     environment:
@@ -23,11 +67,16 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # Redis — task queue (List), status store (String), and Pub/Sub broker
+  # ---------------------------------------------------------------------------
   redis:
     image: redis:alpine
     ports:
       - "6379:6379"
+    restart: unless-stopped
 
 volumes:
   pgdata:
