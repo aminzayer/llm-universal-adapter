@@ -490,7 +490,7 @@ class AgentWorker:
                 )
                 await asyncio.gather(*active_tasks, return_exceptions=True)
 
-            if self._redis:
+            if self._redis is not None:
                 await self._redis.aclose()
             logger.info("AgentWorker shut down cleanly.")
 
