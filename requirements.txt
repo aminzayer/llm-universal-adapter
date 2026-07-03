@@ -62,3 +62,4 @@ mypy>=1.9.0
 # Type stubs (required by mypy for untyped third-party packages)
 # ---------------------------------------------------------------------------
 types-beautifulsoup4>=4.12.0
+types-cachetools>=5.3.0
