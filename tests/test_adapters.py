@@ -2,10 +2,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
+import anthropic
 from google.genai.errors import APIError  # pyright: ignore[reportMissingImports]
 
 from adapter.openai_adapter import OpenAIAdapter
 from adapter.gemini_adapter import GeminiAdapter
+from adapter.anthropic_adapter import AnthropicAdapter
 
 
 @pytest.fixture(autouse=True)
@@ -238,3 +240,234 @@ async def test_gemini_adapter_generate_with_tools(MockClient: MagicMock) -> None
 
     assert response == "The weather in London is sunny."
     assert mock_instance.aio.models.generate_content.call_count == 2
+
+
+# =============================================================================
+# AnthropicAdapter Tests
+# =============================================================================
+
+
+def test_anthropic_adapter_missing_key() -> None:
+    """Ensure AnthropicAdapter raises ValueError if API key is completely missing."""
+    with patch("config.settings.anthropic_api_key", None):
+        with pytest.raises(ValueError, match="Anthropic API key is missing"):
+            AnthropicAdapter(api_key=None)
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_generate_response_success(mock_client: MagicMock) -> None:
+    """Test successful response generation without retries."""
+    mock_instance = mock_client.return_value
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(type="text", text="Hello Anthropic!")]
+    mock_instance.messages.create = AsyncMock(return_value=mock_response)
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+    response = await adapter.generate_response("Hello!")
+
+    assert response == "Hello Anthropic!"
+    mock_instance.messages.create.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_generate_response_retry_success(mock_client: MagicMock) -> None:
+    """Test that a RateLimitError triggers a retry and eventually succeeds."""
+    mock_instance = mock_client.return_value
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(type="text", text="Hello again!")]
+
+    # Fail twice with RateLimitError, then succeed
+    mock_error = anthropic.RateLimitError(message="Rate limited", response=MagicMock(), body=None)
+    mock_instance.messages.create = AsyncMock(side_effect=[
+        mock_error,
+        mock_error,
+        mock_response,
+    ])
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+    response = await adapter.generate_response("Hi")
+
+    assert response == "Hello again!"
+    assert mock_instance.messages.create.call_count == 3
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_generate_response_retry_failure(mock_client: MagicMock) -> None:
+    """Test that repeated failures eventually raise the underlying exception."""
+    mock_instance = mock_client.return_value
+    mock_error = anthropic.InternalServerError(message="Server Error", response=MagicMock(), body=None)
+    mock_instance.messages.create = AsyncMock(side_effect=mock_error)
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+
+    with pytest.raises(anthropic.InternalServerError):
+        await adapter.generate_response("Hi")
+
+    # Tenacity stops after 5 attempts
+    assert mock_instance.messages.create.call_count == 5
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_get_token_count(mock_client: MagicMock) -> None:
+    """Test token counting logic."""
+    mock_instance = mock_client.return_value
+    mock_response = MagicMock()
+    mock_response.input_tokens = 12
+    mock_instance.messages.count_tokens = AsyncMock(return_value=mock_response)
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+    assert await adapter.get_token_count("test text") == 12
+    mock_instance.messages.count_tokens.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_agenerate_stream(mock_client: MagicMock) -> None:
+    """Test streaming text generation."""
+    mock_instance = mock_client.return_value
+    
+    # Mock the context manager
+    mock_stream_ctx = MagicMock()
+    mock_stream = AsyncMock()
+    
+    # Simulating stream.text_stream as an async iterator yielding chunks
+    async def async_iter():
+        yield "chunk1"
+        yield "chunk2"
+        
+    mock_stream.text_stream = async_iter()
+    mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_stream)
+    mock_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+    
+    mock_instance.messages.stream = MagicMock(return_value=mock_stream_ctx)
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+    chunks = []
+    async for chunk in adapter.agenerate_stream("hello"):
+        chunks.append(chunk)
+
+    assert chunks == ["chunk1", "chunk2"]
+    mock_instance.messages.stream.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_generate_with_tools(mock_client: MagicMock) -> None:
+    """Test tool execution pipeline for Anthropic."""
+    mock_instance = mock_client.return_value
+
+    # First response: returns a tool call block
+    mock_tool_block = MagicMock(type="tool_use")
+    mock_tool_block.id = "toolu_123"
+    mock_tool_block.name = "get_weather"
+    mock_tool_block.input = {"location": "London"}
+
+    first_response = MagicMock()
+    first_response.content = [mock_tool_block]
+
+    # Second response: returns the final text block
+    mock_text_block = MagicMock(type="text", text="The weather in London is sunny.")
+    second_response = MagicMock()
+    second_response.content = [mock_text_block]
+
+    mock_instance.messages.create = AsyncMock(side_effect=[first_response, second_response])
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+
+    # Register a test tool
+    def get_weather(location: str) -> str:
+        return f"Weather in {location} is sunny"
+
+    adapter.register_tool("get_weather", get_weather, "Get the weather for a location")
+
+    response = await adapter.generate_with_tools("What is the weather in London?")
+
+    assert response == "The weather in London is sunny."
+    assert mock_instance.messages.create.call_count == 2
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_generate_with_tools_hitl(mock_client: MagicMock) -> None:
+    """Test HITL suspension flow for Anthropic when approval is required."""
+    from orchestration.hitl import ApprovalRequiredError
+    mock_instance = mock_client.return_value
+
+    mock_tool_block = MagicMock(type="tool_use")
+    mock_tool_block.id = "toolu_hitl"
+    mock_tool_block.name = "secure_tool"
+    mock_tool_block.input = {"data": "secret"}
+
+    first_response = MagicMock()
+    first_response.content = [mock_tool_block]
+
+    mock_instance.messages.create = AsyncMock(return_value=first_response)
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+    
+    # Mock Redis client
+    class MockRedis:
+        def __init__(self):
+            self.store = {}
+        async def set(self, key, value, ex=None):
+            self.store[key] = value
+
+    mock_redis = MockRedis()
+    adapter.set_redis_client(mock_redis)
+
+    def secure_tool(data: str) -> str:
+        return f"Processed {data}"
+
+    adapter.register_tool("secure_tool", secure_tool, "A secure tool", requires_approval=True)
+
+    with pytest.raises(ApprovalRequiredError) as exc_info:
+        await adapter.generate_with_tools("Run the secure tool")
+
+    assert exc_info.value.tool_name == "secure_tool"
+    assert exc_info.value.tool_args == {"data": "secret"}
+    assert exc_info.value.tool_call_id == "toolu_hitl"
+    assert len(mock_redis.store) == 1
+
+
+@pytest.mark.asyncio
+@patch("src.adapter.anthropic_adapter.anthropic.AsyncAnthropic")
+async def test_anthropic_adapter_resume_with_tools(mock_client: MagicMock) -> None:
+    """Test resuming a suspended tool execution for Anthropic."""
+    mock_instance = mock_client.return_value
+
+    mock_text_block = MagicMock(type="text", text="Tool execution approved. Result: Success.")
+    second_response = MagicMock()
+    second_response.content = [mock_text_block]
+
+    mock_instance.messages.create = AsyncMock(return_value=second_response)
+
+    adapter = AnthropicAdapter(api_key="fake-key")
+
+    def secure_tool(data: str) -> str:
+        return f"Processed {data}"
+
+    adapter.register_tool("secure_tool", secure_tool, "A secure tool", requires_approval=True)
+
+    # Recreate the suspended state object
+    from orchestration.hitl import HITLState
+    state = HITLState(
+        state_id="hitl_123",
+        request_id="req_123",
+        provider="anthropic",
+        model="claude-3-5-sonnet-20241022",
+        tool_name="secure_tool",
+        tool_args={"data": "secret"},
+        tool_call_id="toolu_hitl",
+        messages=[{"role": "user", "content": "Run secure tool"}],
+        pending_tool_calls=[{"id": "toolu_hitl", "type": "tool_use", "name": "secure_tool", "input": {"data": "secret"}}],
+        status="pending"
+    )
+
+    response = await adapter.resume_with_tools(state)
+
+    assert response == "Tool execution approved. Result: Success."
+    mock_instance.messages.create.assert_awaited_once()

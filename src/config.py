@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     openai_api_key: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
     default_temperature: float = 0.7
 
     # Configuration for pydantic-settings
