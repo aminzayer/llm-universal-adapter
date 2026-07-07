@@ -30,7 +30,7 @@
 **LLM Universal Adapter** is a resilient, async FastAPI backend service that:
 
 - Exposes a single **OpenAI-compatible** REST API (`POST /v1/chat/completions`)
-- Normalises interactions with **multiple LLM providers** (OpenAI GPT-4o, Google Gemini 2.5 Flash, local vLLM/Ollama) behind a single `BaseLLMAdapter` interface
+- Normalises interactions with **multiple LLM providers** (OpenAI GPT-4o, Google Gemini 2.5 Flash, Anthropic Claude 3.5 Sonnet, local vLLM/Ollama) behind a single `BaseLLMAdapter` interface
 - Implements **automatic failover**: primary → fallback cloud, with an optional local-first path for trivial prompts
 - Guards every inbound prompt with a **security middleware** (PII masking + prompt-injection detection)
 - Emits **structured JSON telemetry** for every LLM call (latency, tokens, cache tier, errors)
@@ -58,6 +58,7 @@ llm-universal-adapter/
 │   │   ├── factory.py              # LLMAdapterFactory (registry + middleware stacking)
 │   │   ├── openai_adapter.py       # OpenAIAdapter (gpt-4o default, tiktoken)
 │   │   ├── gemini_adapter.py       # GeminiAdapter (gemini-2.5-flash, google-genai SDK)
+│   │   ├── anthropic_adapter.py    # AnthropicAdapter (claude-3-5-sonnet, anthropic async SDK)
 │   │   └── local_adapter.py        # LocalModelAdapter (OpenAI-compat HTTP, vLLM/Ollama)
 │   ├── orchestration/
 │   │   ├── hitl.py                 # HITLState, HITLStateManager (Redis-backed tool approval)
@@ -217,6 +218,16 @@ InputGuardrailMiddleware   [opt-in]
 - Retries only on `APIError`; temperature mapped to `types.GenerateContentConfig`
 - Passes tools as a list of raw Python callables to the SDK (SDK auto-generates schema)
 - **HITL Integration**: Supports tool suspension and resumption (`resume_with_tools`) using native Gemini tool response types, interacting with Redis via `HITLStateManager`.
+
+---
+
+#### `anthropic_adapter.py` — `AnthropicAdapter`
+
+- Uses the official `anthropic` async SDK (`AsyncAnthropic`); defaults to `claude-3-5-sonnet-20241022`
+- Token counting uses the native `messages.count_tokens` endpoint
+- Retries on `RateLimitError`, `APIConnectionError`, `InternalServerError` — 5 attempts, exponential backoff via `tenacity`
+- Maps tool schemas to Claude's JSON Schema format (`input_schema`) using `inspect.signature`
+- **HITL Integration**: Checks if tool calls require approval. Saves suspended state to Redis and raises `ApprovalRequiredError` if so. Implements `resume_with_tools` to execute approved tools and any remaining queued calls, grouping consecutive tool results under a single `user` role message to prevent Claude API role alternation violations.
 
 ---
 
@@ -802,6 +813,7 @@ docker-compose down             # Stop and remove containers
 |---|---|---|---|
 | `OPENAI_API_KEY` | `config.py` | — | Required for OpenAI |
 | `GEMINI_API_KEY` | `config.py` | — | Required for Gemini |
+| `ANTHROPIC_API_KEY` | `config.py` | — | Required for Anthropic |
 | `DEFAULT_TEMPERATURE` | `config.py` | `0.7` | |
 | `DATABASE_URL` | `main.py` lifespan | — | PostgreSQL DSN; optional |
 | `REDIS_URL` | `main.py` lifespan | — | Redis DSN; optional |
@@ -916,6 +928,9 @@ higher constraint. Edit with care.
 ### graphify CLI path
 Use the absolute path `/opt/homebrew/bin/graphify` if the `graphify` shell wrapper causes module
 resolution errors in some environments.
+
+### Anthropic role alternation and tool results
+Unlike OpenAI and Gemini which support a separate `tool` role, the Anthropic Messages API strictly requires alternating `user` and `assistant` roles. Because tool responses are returned as `user` role messages with `tool_result` content blocks, consecutive tool result messages are prohibited. The `AnthropicAdapter` automatically normalizes this by merging consecutive tool results into a single consolidated `user` message's content list. If the previous message is a user query, its string content is converted to a block list containing a text block and the tool result blocks.
 
 ---
 

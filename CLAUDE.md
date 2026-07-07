@@ -53,6 +53,7 @@ The system supports suspending execution when a tool registered with `requires_a
 - `base.py` — `BaseLLMAdapter` ABC. Defines the interface: `generate_response`, `agenerate_stream`, `generate_with_tools`, `get_token_count`, `register_tool` (which supports a `requires_approval` boolean), `set_redis_client`, and `resume_with_tools`.
 - `openai_adapter.py` — uses `openai.AsyncClient`. Token counting is local via `tiktoken`. Retries on `RateLimitError`, `APIConnectionError`, `InternalServerError`. Suspends tool calls if marked for approval, raising `ApprovalRequiredError`. Implements `resume_with_tools` by running the approved tool, executing remaining tools in the batch, and returning the final completion.
 - `gemini_adapter.py` — uses the new `google-genai` SDK (`genai.Client`). Token counting hits the API. Retries only on `APIError`. Implements tool suspension and `resume_with_tools` using Gemini's native tool response structures.
+- `anthropic_adapter.py` — uses the official `anthropic` async SDK (`AsyncAnthropic`). Token counting uses the native `messages.count_tokens` endpoint. Retries on `RateLimitError`, `APIConnectionError`, `InternalServerError`. Implements tool suspension and `resume_with_tools` mapping registered tools to Claude's JSON Schema format (`input_schema`) and dynamically converting string content fields to block lists to prevent consecutive role exceptions.
 - `local_adapter.py` — `LocalModelAdapter` speaks OpenAI-compatible HTTP (`POST /v1/chat/completions`) to vLLM, Ollama, or LM Studio. Optimized for hardware-accelerated local environments. Streaming is SSE-line parsed. Token counting is a local character heuristic. `generate_with_tools` raises `NotImplementedError`.
 - `factory.py` — registry pattern; registrations happen at import time in `src/adapter/__init__.py`.
 
@@ -79,7 +80,7 @@ FastAPI app exposing an OpenAI-compatible contract. `AppState` (a plain module-l
 
 ### Configuration (`src/config.py`)
 
-Pydantic Settings loads from `.env`. Only `openai_api_key`, `gemini_api_key`, and `default_temperature` (default `0.7`) are exposed.
+Pydantic Settings loads from `.env`. Only `openai_api_key`, `gemini_api_key`, `anthropic_api_key`, and `default_temperature` (default `0.7`) are exposed.
 
 `DATABASE_URL`, `REDIS_URL`, `PRIMARY_PROVIDER` (default `openai`), `FALLBACK_PROVIDER` (default `gemini`), `LOCAL_PROVIDER_BASE_URL`, `LOCAL_MODEL` (default `llama3.1`), and `LOCAL_PROVIDER_API_KEY` are **not** in `Settings` — they are read directly by `src/main.py` via `os.getenv` inside the lifespan handler. `LOCAL_PROVIDER_BASE_URL` is opt-in: if unset, the router runs in the original two-adapter shape with no local dispatch. The `.env.example` file only ships LLM keys; the connection vars and provider-selection vars must be added by hand for full-stack local runs. If `DATABASE_URL`/`REDIS_URL` are missing, `db_pool` and `redis_pool` stay `None` and the app still starts (the chat endpoint will work, but the cache/db layers won't). `mypy` strictness is relaxed for `tiktoken`, `google.*`, and `tenacity.*` in `pyproject.toml`.
 
@@ -87,7 +88,7 @@ Pydantic Settings loads from `.env`. Only `openai_api_key`, `gemini_api_key`, an
 
 - **Language**: Python 3.11+
 - **Web Framework**: FastAPI (entry: `src.main:app`), served via `uvicorn` (not `uwsgi`)
-- **LLM SDKs**: `openai>=1.14.0`, `google-genai>=0.3.0`
+- **LLM SDKs**: `openai>=1.14.0`, `google-genai>=0.3.0`, `anthropic>=0.116.0`
 - **Resilience**: `tenacity` (exponential backoff, retries on provider-specific errors)
 - **Async HTTP**: `aiohttp`, `beautifulsoup4`
 - **Tokenization**: `tiktoken` (OpenAI only; Gemini counts via API)
