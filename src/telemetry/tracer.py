@@ -111,9 +111,19 @@ class ObservabilityMiddleware(BaseLLMAdapter):
         except Exception:
             prompt_tokens, completion_tokens, total_tokens = 0, 0, 0
 
-        # Heuristic for cache hit: extremely low latency when a semantic cache is present
+        # Check dynamic cache tier surfaced from decorator
         cache_status = "DISABLED"
-        if getattr(self.adapter, "semantic_cache", None) is not None:
+        last_cache_tier = getattr(self.adapter, "_last_cache_tier", None)
+        if last_cache_tier is not None:
+            if last_cache_tier in ("REDIS", "PGVECTOR"):
+                cache_status = "HIT"
+            elif last_cache_tier == "MISS":
+                cache_status = "MISS"
+            try:
+                delattr(self.adapter, "_last_cache_tier")
+            except AttributeError:
+                pass
+        elif getattr(self.adapter, "semantic_cache", None) is not None:
             if latency < 0.05 and error is None:
                 cache_status = "HIT"
             else:

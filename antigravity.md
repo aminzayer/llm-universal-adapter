@@ -419,7 +419,7 @@ Always wraps raw adapters (applied automatically by `LLMAdapterFactory`). Emits 
 }
 ```
 
-**Cache status heuristic:** If the inner adapter exposes `semantic_cache` and latency < 50ms with no error -> `"HIT"`; otherwise `"MISS"`; no attribute -> `"DISABLED"`.
+**Cache status logging:** The middleware dynamically reads the hit/miss status from `self.adapter._last_cache_tier` set by the `@with_semantic_cache` decorator. It logs `"HIT"` for Redis or PGVector hits, `"MISS"` for misses, and `"DISABLED"` when caching is not configured.
 
 Compatible with ELK and Prometheus (line-by-line JSON ingestion).
 
@@ -438,7 +438,7 @@ Two-tier caching architecture:
 
 - `get(prompt)` returns `(response | None, tier)` where tier is `"REDIS"`, `"PGVECTOR"`, or `"MISS"`
 - `set(prompt, response)` writes to both tiers; Layer 1 backfill happens on Layer 2 hits
-- `with_semantic_cache` decorator checks `getattr(self, "semantic_cache", None)` — **not yet wired to any adapter**
+- `with_semantic_cache` decorator is applied to `generate_response` in `OpenAIAdapter`, `GeminiAdapter`, and `AnthropicAdapter`
 
 **pgvector schema (inline-migrated on first `get` call):**
 ```sql
@@ -896,10 +896,10 @@ If any tools are registered with `requires_approval=True`, a valid Redis client 
 ### Mid-batch tool suspension
 If multiple tools are called by the LLM in a single turn, and the first one requires approval, the entire batch is suspended. Subsequent tool calls are stored in the state's `pending_tool_calls` and executed during the resumption step.
 
-### SemanticCache is not wired
-The `SemanticCache` class and `with_semantic_cache` decorator exist but are **not yet applied to any adapter**.
-Until wired, `ObservabilityMiddleware.cache_status` will always be `"DISABLED"`.
-To enable: assign `SemanticCache` to an adapter instance and decorate its `generate_response`.
+### SemanticCache is wired
+The `SemanticCache` class and `with_semantic_cache` decorator are wired up and applied to `OpenAIAdapter`, `GeminiAdapter`, and `AnthropicAdapter`.
+The adapter instances dynamically initialize `SemanticCache` by retrieving `redis_pool` and `db_pool` from `app_state` (defined in `main.py`).
+`ObservabilityMiddleware.cache_status` logs dynamic cache hits and misses.
 
 ### RouterManager tool propagation
 Registering a tool on `RouterManager` propagates to all inner adapters. If adapters are re-created

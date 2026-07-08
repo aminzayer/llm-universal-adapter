@@ -14,6 +14,7 @@ from tenacity import (
 
 from .base import BaseLLMAdapter
 from config import settings
+from cache.semantic import SemanticCache, with_semantic_cache
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,34 @@ class OpenAIAdapter(BaseLLMAdapter):
 
         self.client = openai.AsyncClient(api_key=api_key)
         self.model = model
+        self._semantic_cache: Optional[SemanticCache] = None
         super().__init__()
 
+    @property
+    def semantic_cache(self) -> Optional[SemanticCache]:
+        if not hasattr(self, "_semantic_cache") or self._semantic_cache is None:
+            from main import app_state
+            if app_state.redis_pool is not None and app_state.db_pool is not None:
+                self._semantic_cache = SemanticCache(
+                    embedding_func=self.get_embedding,
+                    redis_client=app_state.redis_pool,
+                    db_pool=app_state.db_pool,
+                )
+            else:
+                self._semantic_cache = None
+        return self._semantic_cache
+
+    async def get_embedding(self, text: str) -> list[float]:
+        """
+        Generates embedding using OpenAI embeddings API.
+        """
+        response = await self.client.embeddings.create(
+            input=text,
+            model="text-embedding-3-small"
+        )
+        return response.data[0].embedding
+
+    @with_semantic_cache
     @retry(
         retry=retry_if_exception_type((
             openai.RateLimitError,

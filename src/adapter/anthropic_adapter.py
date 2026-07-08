@@ -1,6 +1,6 @@
 import inspect
 import logging
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, cast
 
 import anthropic
 from tenacity import (
@@ -12,6 +12,7 @@ from tenacity import (
 
 from .base import BaseLLMAdapter
 from config import settings
+from cache.semantic import SemanticCache, with_semantic_cache
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,64 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
         self.model = model
+        self._semantic_cache: Optional[SemanticCache] = None
+        self._embedding_client: Optional[Any] = None
+        self._embedding_provider: Optional[str] = None
 
+    @property
+    def semantic_cache(self) -> Optional[SemanticCache]:
+        if not hasattr(self, "_semantic_cache") or self._semantic_cache is None:
+            from main import app_state
+            if app_state.redis_pool is not None and app_state.db_pool is not None:
+                self._semantic_cache = SemanticCache(
+                    embedding_func=self.get_embedding,
+                    redis_client=app_state.redis_pool,
+                    db_pool=app_state.db_pool,
+                )
+            else:
+                self._semantic_cache = None
+        return self._semantic_cache
+
+    async def get_embedding(self, text: str) -> list[float]:
+        """
+        Generates embedding by delegating to OpenAI or Gemini based on configuration.
+        """
+        if not hasattr(self, "_embedding_client") or self._embedding_client is None:
+            if settings.openai_api_key:
+                import openai
+                self._embedding_client = openai.AsyncClient(api_key=settings.openai_api_key)
+                self._embedding_provider = "openai"
+            elif settings.gemini_api_key:
+                from google import genai
+                self._embedding_client = genai.Client(api_key=settings.gemini_api_key)
+                self._embedding_provider = "gemini"
+            else:
+                self._embedding_client = None
+                self._embedding_provider = None
+
+        if self._embedding_provider == "openai":
+            # mypy needs to know self._embedding_client is not None here, but we check provider
+            import openai
+            openai_client = cast(openai.AsyncClient, self._embedding_client)
+            openai_response = await openai_client.embeddings.create(
+                input=text,
+                model="text-embedding-3-small"
+            )
+            return openai_response.data[0].embedding
+        elif self._embedding_provider == "gemini":
+            from google import genai
+            gemini_client = cast(genai.Client, self._embedding_client)
+            gemini_response = await gemini_client.aio.models.embed_content(
+                model="text-embedding-004",
+                contents=text,
+            )
+            if not gemini_response.embeddings or not gemini_response.embeddings[0].values:
+                raise ValueError("Failed to retrieve embeddings from Gemini API for Anthropic adapter.")
+            return gemini_response.embeddings[0].values
+        else:
+            raise ValueError("No embedding provider (OpenAI or Gemini) API key is configured for AnthropicAdapter's SemanticCache.")
+
+    @with_semantic_cache
     @retry(
         retry=retry_if_exception_type((
             anthropic.RateLimitError,

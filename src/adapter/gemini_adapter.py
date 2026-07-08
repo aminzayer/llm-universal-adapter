@@ -14,6 +14,7 @@ from tenacity import (
 
 from adapter.base import BaseLLMAdapter
 from config import settings
+from cache.semantic import SemanticCache, with_semantic_cache
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,35 @@ class GeminiAdapter(BaseLLMAdapter):
         # The new SDK instantiates an isolated Client rather than mutating global state
         self.client = genai.Client(api_key=api_key)
         self.model_name = model
+        self._semantic_cache: Optional[SemanticCache] = None
 
+    @property
+    def semantic_cache(self) -> Optional[SemanticCache]:
+        if not hasattr(self, "_semantic_cache") or self._semantic_cache is None:
+            from main import app_state
+            if app_state.redis_pool is not None and app_state.db_pool is not None:
+                self._semantic_cache = SemanticCache(
+                    embedding_func=self.get_embedding,
+                    redis_client=app_state.redis_pool,
+                    db_pool=app_state.db_pool,
+                )
+            else:
+                self._semantic_cache = None
+        return self._semantic_cache
+
+    async def get_embedding(self, text: str) -> list[float]:
+        """
+        Generates embedding using Gemini embeddings API.
+        """
+        response = await self.client.aio.models.embed_content(
+            model="text-embedding-004",
+            contents=text,
+        )
+        if not response.embeddings or not response.embeddings[0].values:
+            raise ValueError("Failed to retrieve embeddings from Gemini API.")
+        return response.embeddings[0].values
+
+    @with_semantic_cache
     @retry(
         retry=retry_if_exception_type((APIError,)),
         wait=wait_exponential(multiplier=1, min=2, max=10),
