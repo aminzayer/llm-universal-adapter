@@ -36,7 +36,7 @@ try:
 
     _CROSS_ENCODER_AVAILABLE = True
 except ModuleNotFoundError:  # pragma: no cover
-    _CrossEncoder = None  # type: ignore[assignment]
+    _CrossEncoder = None  # type: ignore[misc,assignment]
     _CROSS_ENCODER_AVAILABLE = False
 
 
