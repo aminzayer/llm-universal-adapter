@@ -82,7 +82,7 @@ class FakeESTool:
     def __init__(self, payload: Any) -> None:
         self.payload = payload
 
-    def search(
+    async def search(
         self,
         query: str,
         index_name: str,

@@ -525,9 +525,42 @@ Uses `LLMAdapterFactory.create_adapter(provider)` — inherits full middleware s
 
 Designed to be registered with `adapter.register_tool(name, func, description)`.
 
-- Searches across `title`, `content`, `description` fields via `multi_match`
-- Enforces **source diversity**: oversamples 5x top_k, then caps at `max_count_per_domain` (default 2) per domain
-- Returns JSON string: `{"results": [...]}`
+The `search()` method is **async** and implements a four-stage hybrid retrieval pipeline:
+
+| Stage | Mechanism | Notes |
+|---|---|---|
+| 1. Keyword recall | Elasticsearch `multi_match` (BM25) | Always runs; returns `(doc, score)` pairs |
+| 2. Semantic recall | pgvector `<=>` cosine similarity | Skipped when `pg_pool=None` |
+| 3. Cross-encoder rerank | `sentence-transformers` `CrossEncoder` | Soft dependency; falls back to retrieval-score sort if not installed |
+| 4. Diversity cap | `max_count_per_domain` (default `2`) | Applied **after** reranking, not after BM25 |
+
+**Constructor signature:**
+```python
+ElasticsearchDiscoveryTool(
+    es_client: Elasticsearch,
+    *,
+    pg_pool: Optional[asyncpg.Pool] = None,
+    embedding_func: Optional[Callable[[str], Awaitable[list[float]]]] = None,
+    reranker_model: Optional[str] = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+)
+```
+
+**Graceful degradation:** every optional component fails silently — `pg_pool=None` skips the vector stage, `sentence-transformers` absent falls back to score sort, and if both retrieval stages fail the method returns `{"error": "..."}` without raising.
+
+**Returns:** JSON string — `{"results": [...]}` on success, `{"error": "..."}` on total failure.
+
+**Expected PostgreSQL schema** (for vector-search stage):
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE TABLE IF NOT EXISTS documents (
+    id          SERIAL PRIMARY KEY,
+    url         TEXT,
+    title       TEXT,
+    content     TEXT,
+    description TEXT,
+    embedding   vector(1536)  -- match your model dimension
+);
+```
 
 ---
 
@@ -768,7 +801,7 @@ src/main.py
 src/orchestration/swarm.py
   |-- adapter/base.py
   |-- prompts/registry.py
-  |-- tools/es_discovery.py         -> elasticsearch>=9.4
+  |-- tools/es_discovery.py         -> elasticsearch>=9.4, asyncpg>=0.31 (optional pg_pool), sentence-transformers>=3.0 (optional reranker)
   |-- utils/structured.py           -> pydantic>=2, tenacity>=8.2
 
 src/cache/semantic.py               -> asyncpg>=0.31, redis>=8.0

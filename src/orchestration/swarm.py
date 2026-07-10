@@ -153,7 +153,7 @@ class SearchAgent(BaseWorker):
             top_k=self.top_k,
             max_count_per_domain=self.max_count_per_domain,
         )
-        raw = self.es_tool.search(
+        raw = await self.es_tool.search(
             query=params.query,
             index_name=params.index_name,
             top_k=params.top_k,

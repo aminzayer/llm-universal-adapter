@@ -67,7 +67,7 @@ class FakeESTool:
         self.payload = payload
         self.calls: List[dict] = []
 
-    def search(self, query: str, index_name: str, top_k: int = 5, max_count_per_domain: int = 2) -> str:
+    async def search(self, query: str, index_name: str, top_k: int = 5, max_count_per_domain: int = 2) -> str:
         self.calls.append(
             {
                 "query": query,
